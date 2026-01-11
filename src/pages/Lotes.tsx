@@ -24,22 +24,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Package, Users, TrendingUp, Loader2 } from 'lucide-react';
+import { Plus, Package, Users, TrendingUp, Loader2, Trash2 } from 'lucide-react';
+import { DeleteLoteModal } from '@/components/modals/DeleteLoteModal';
 
-const tiposAlimentacao = [
-  'Confinado',
-  'Milheto',
-  'Pasto',
-  'Tifton',
-  'Semi-Confinado',
-];
+const tiposAlimentacao = ['Confinado', 'Milheto', 'Pasto', 'Tifton', 'Semi-Confinado'];
 
 export default function Lotes() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; lote: any; animais: number } | null>(null);
 
-  // Form state
   const [nome, setNome] = useState('');
   const [tipoAlimentacao, setTipoAlimentacao] = useState('');
   const [capacidade, setCapacidade] = useState('');
@@ -56,7 +51,6 @@ export default function Lotes() {
       if (error) throw error;
       if (!lotesData || lotesData.length === 0) return [];
 
-      // Fetch animal counts and stats
       const lotesWithStats = await Promise.all(
         lotesData.map(async (lote) => {
           const { data: animais } = await supabase
@@ -66,9 +60,8 @@ export default function Lotes() {
             .eq('ativo', true);
 
           const totalAnimais = animais?.length || 0;
-
-          // Calculate GMD if there are animals
           let gmdMedio = 0;
+
           if (animais && animais.length > 0) {
             const animalIds = animais.map(a => a.id);
             const { data: pesagens } = await supabase
@@ -96,11 +89,7 @@ export default function Lotes() {
             gmdMedio = totalGMD / animais.length;
           }
 
-          return {
-            ...lote,
-            totalAnimais,
-            gmdMedio: Number(gmdMedio.toFixed(2)),
-          };
+          return { ...lote, totalAnimais, gmdMedio: Number(gmdMedio.toFixed(2)) };
         })
       );
 
@@ -112,30 +101,24 @@ export default function Lotes() {
   const createLoteMutation = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error('Usuário não autenticado');
-
-      const { error } = await supabase
-        .from('lotes')
-        .insert({
-          user_id: user.id,
-          nome,
-          tipo_alimentacao: tipoAlimentacao || null,
-          capacidade: capacidade ? parseInt(capacidade) : null,
-        });
-
+      const { error } = await supabase.from('lotes').insert({
+        user_id: user.id,
+        nome,
+        tipo_alimentacao: tipoAlimentacao || null,
+        capacidade: capacidade ? parseInt(capacidade) : null,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['lotes'] });
-      toast.success('Lote criado com sucesso!');
+      toast.success('Lote criado!');
       setDialogOpen(false);
       setNome('');
       setTipoAlimentacao('');
       setCapacidade('');
     },
     onError: (error: any) => {
-      toast.error('Erro ao criar lote', {
-        description: error.message,
-      });
+      toast.error('Erro ao criar lote', { description: error.message });
     },
   });
 
@@ -151,13 +134,10 @@ export default function Lotes() {
   return (
     <AppLayout>
       <div className="container py-6">
-        {/* Header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Lotes</h1>
-            <p className="text-muted-foreground">
-              {lotes?.length || 0} lotes ativos
-            </p>
+            <p className="text-muted-foreground">{lotes?.length || 0} lotes ativos</p>
           </div>
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -174,65 +154,25 @@ export default function Lotes() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="nome">Nome do Lote *</Label>
-                  <Input
-                    id="nome"
-                    placeholder="Ex: Lote 1 - Confinado"
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    required
-                  />
+                  <Input id="nome" placeholder="Ex: Lote 1" value={nome} onChange={(e) => setNome(e.target.value)} required />
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="tipo">Tipo de Alimentação</Label>
+                  <Label>Tipo de Alimentação</Label>
                   <Select value={tipoAlimentacao} onValueChange={setTipoAlimentacao}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o tipo" />
-                    </SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Selecione..." /></SelectTrigger>
                     <SelectContent>
-                      {tiposAlimentacao.map((tipo) => (
-                        <SelectItem key={tipo} value={tipo}>
-                          {tipo}
-                        </SelectItem>
-                      ))}
+                      {tiposAlimentacao.map((tipo) => (<SelectItem key={tipo} value={tipo}>{tipo}</SelectItem>))}
                     </SelectContent>
                   </Select>
                 </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="capacidade">Capacidade (animais)</Label>
-                  <Input
-                    id="capacidade"
-                    type="number"
-                    min="1"
-                    placeholder="Ex: 50"
-                    value={capacidade}
-                    onChange={(e) => setCapacidade(e.target.value)}
-                  />
+                  <Label htmlFor="capacidade">Capacidade</Label>
+                  <Input id="capacidade" type="number" min="1" placeholder="Ex: 50" value={capacidade} onChange={(e) => setCapacidade(e.target.value)} />
                 </div>
-
                 <div className="flex gap-3 pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setDialogOpen(false)}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="flex-1"
-                    disabled={createLoteMutation.isPending}
-                  >
-                    {createLoteMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Criando...
-                      </>
-                    ) : (
-                      'Criar'
-                    )}
+                  <Button type="button" variant="outline" className="flex-1" onClick={() => setDialogOpen(false)}>Cancelar</Button>
+                  <Button type="submit" className="flex-1" disabled={createLoteMutation.isPending}>
+                    {createLoteMutation.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Criando...</> : 'Criar'}
                   </Button>
                 </div>
               </form>
@@ -240,20 +180,9 @@ export default function Lotes() {
           </Dialog>
         </div>
 
-        {/* Lotes List */}
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {[...Array(3)].map((_, i) => (
-              <Card key={i}>
-                <CardHeader>
-                  <Skeleton className="h-6 w-32" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="mb-2 h-4 w-24" />
-                  <Skeleton className="h-4 w-20" />
-                </CardContent>
-              </Card>
-            ))}
+            {[...Array(3)].map((_, i) => (<Card key={i}><CardHeader><Skeleton className="h-6 w-32" /></CardHeader><CardContent><Skeleton className="h-4 w-24" /></CardContent></Card>))}
           </div>
         ) : lotes && lotes.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -265,9 +194,12 @@ export default function Lotes() {
                       <Package className="h-5 w-5 text-primary" />
                       {lote.nome}
                     </CardTitle>
-                    {lote.tipo_alimentacao && (
-                      <Badge variant="secondary">{lote.tipo_alimentacao}</Badge>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {lote.tipo_alimentacao && <Badge variant="secondary">{lote.tipo_alimentacao}</Badge>}
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:bg-destructive/10" onClick={() => setDeleteModal({ open: true, lote, animais: lote.totalAnimais })}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -276,21 +208,16 @@ export default function Lotes() {
                       <Users className="h-4 w-4" />
                       <span>{lote.totalAnimais} animais ativos</span>
                     </div>
-
                     {lote.gmdMedio > 0 && (
                       <div className="flex items-center gap-2 text-sm">
                         <TrendingUp className="h-4 w-4 text-primary" />
                         <span>GMD Médio: {lote.gmdMedio} kg/dia</span>
-                        {lote.gmdMedio >= 1.3 && (
-                          <Badge variant="default">⭐</Badge>
-                        )}
+                        {lote.gmdMedio >= 1.3 && <Badge variant="default">⭐</Badge>}
                       </div>
                     )}
-
                     {lote.capacidade && (
                       <div className="text-xs text-muted-foreground">
-                        Ocupação: {lote.totalAnimais}/{lote.capacidade} (
-                        {Math.round((lote.totalAnimais / lote.capacidade) * 100)}%)
+                        Ocupação: {lote.totalAnimais}/{lote.capacidade} ({Math.round((lote.totalAnimais / lote.capacidade) * 100)}%)
                       </div>
                     )}
                   </div>
@@ -303,26 +230,17 @@ export default function Lotes() {
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Package className="mb-4 h-12 w-12 text-muted-foreground" />
               <h3 className="mb-2 text-lg font-semibold">Nenhum lote cadastrado</h3>
-              <p className="mb-4 text-center text-sm text-muted-foreground">
-                Crie lotes para organizar seus animais
-              </p>
-              <Button onClick={() => setDialogOpen(true)}>
-                <Plus className="mr-2 h-4 w-4" />
-                Criar Lote
-              </Button>
+              <Button onClick={() => setDialogOpen(true)}><Plus className="mr-2 h-4 w-4" />Criar Lote</Button>
             </CardContent>
           </Card>
         )}
 
-        {/* Mobile FAB */}
+        {deleteModal && (
+          <DeleteLoteModal open={deleteModal.open} onOpenChange={(open) => !open && setDeleteModal(null)} lote={deleteModal.lote} animaisAtivos={deleteModal.animais} />
+        )}
+
         <div className="fixed bottom-20 right-4 md:hidden">
-          <Button
-            size="lg"
-            className="h-14 w-14 rounded-full shadow-lg"
-            onClick={() => setDialogOpen(true)}
-          >
-            <Plus className="h-6 w-6" />
-          </Button>
+          <Button size="lg" className="h-14 w-14 rounded-full shadow-lg" onClick={() => setDialogOpen(true)}><Plus className="h-6 w-6" /></Button>
         </div>
       </div>
     </AppLayout>

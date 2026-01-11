@@ -11,6 +11,7 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Animais from "./pages/Animais";
 import NovoAnimal from "./pages/NovoAnimal";
+import AnimalDetalhes from "./pages/AnimalDetalhes";
 import Lotes from "./pages/Lotes";
 import Financeiro from "./pages/Financeiro";
 import Sanitario from "./pages/Sanitario";
@@ -73,6 +74,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <NovoAnimal />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/animais/:id"
+        element={
+          <ProtectedRoute>
+            <AnimalDetalhes />
           </ProtectedRoute>
         }
       />

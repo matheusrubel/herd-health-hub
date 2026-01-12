@@ -5,80 +5,121 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { GastoModal } from '@/components/modals/GastoModal';
 import { toast } from 'sonner';
-import { Plus, DollarSign, TrendingUp, Loader2 } from 'lucide-react';
+import { 
+  Plus, 
+  DollarSign, 
+  TrendingUp, 
+  TrendingDown,
+  Wheat, 
+  Syringe, 
+  Users, 
+  MoreHorizontal,
+  ShoppingCart,
+  Edit2,
+  Trash2,
+  Loader2,
+} from 'lucide-react';
+import { format, subDays } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
   Tooltip,
+  Legend,
 } from 'recharts';
 
-const tiposGasto = [
-  'Alimentação',
-  'Sanitário',
-  'Mão de Obra',
-  'Outros',
+const tipoIcons: Record<string, React.ReactNode> = {
+  'Aquisição': <ShoppingCart className="h-4 w-4" />,
+  'Alimentação': <Wheat className="h-4 w-4" />,
+  'Sanitário': <Syringe className="h-4 w-4" />,
+  'Mão de Obra': <Users className="h-4 w-4" />,
+  'Outros': <MoreHorizontal className="h-4 w-4" />,
+};
+
+const COLORS = [
+  'hsl(152, 69%, 31%)', // verde
+  'hsl(239, 84%, 67%)', // indigo
+  'hsl(38, 92%, 50%)',  // amarelo
+  'hsl(0, 84%, 60%)',   // vermelho
+  'hsl(270, 60%, 50%)', // roxo
 ];
 
-const COLORS = ['hsl(152, 69%, 31%)', 'hsl(239, 84%, 67%)', 'hsl(38, 92%, 50%)', 'hsl(270, 60%, 50%)'];
+interface Gasto {
+  id: string;
+  data: string;
+  tipo: string;
+  valor: number;
+  descricao: string;
+  aplicacao: string | null;
+  lote_id: string | null;
+  animal_id: string | null;
+  lotes: { nome: string } | null;
+  animais: { numero_brinco: string } | null;
+}
 
 export default function Financeiro() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedGasto, setSelectedGasto] = useState<Gasto | null>(null);
+  const [gastoToDelete, setGastoToDelete] = useState<string | null>(null);
 
-  // Form state
-  const [data, setData] = useState(new Date().toISOString().split('T')[0]);
-  const [tipo, setTipo] = useState('');
-  const [valor, setValor] = useState('');
-  const [descricao, setDescricao] = useState('');
-  const [aplicacao, setAplicacao] = useState('todos');
-  const [loteId, setLoteId] = useState('');
-
-  const { data: lotes } = useQuery({
-    queryKey: ['lotes', user?.id],
+  // Fetch gastos
+  const { data: gastos, isLoading: gastosLoading } = useQuery({
+    queryKey: ['gastos', user?.id],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('lotes')
-        .select('id, nome')
-        .eq('ativo', true)
-        .order('nome');
+        .from('gastos')
+        .select(`
+          *,
+          lotes(nome),
+          animais(numero_brinco)
+        `)
+        .order('data', { ascending: false });
+
       if (error) throw error;
-      return data;
+      return data as Gasto[];
     },
     enabled: !!user,
   });
 
-  const { data: stats, isLoading } = useQuery({
+  // Fetch stats
+  const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['financeiro-stats', user?.id],
     queryFn: async () => {
-      // Fetch gastos
-      const { data: gastos, error } = await supabase
+      // Gastos
+      const { data: gastosData, error } = await supabase
         .from('gastos')
-        .select('tipo, valor');
+        .select('tipo, valor, data');
 
       if (error) throw error;
 
-      // Fetch aquisicoes from animais
+      // Aquisições dos animais
       const { data: animais } = await supabase
         .from('animais')
         .select('valor_aquisicao')
@@ -86,14 +127,26 @@ export default function Financeiro() {
 
       const totalAquisicao = animais?.reduce((sum, a) => sum + Number(a.valor_aquisicao || 0), 0) || 0;
 
-      // Group by tipo
+      // Agrupar por tipo
       const porTipo: Record<string, number> = {
         'Aquisição': totalAquisicao,
       };
 
-      gastos?.forEach(g => {
+      const hoje = new Date();
+      const dias30Atras = subDays(hoje, 30);
+      let total30Dias = 0;
+      let totalAnterior = 0;
+
+      gastosData?.forEach(g => {
         if (g.tipo !== 'Aquisição') {
           porTipo[g.tipo] = (porTipo[g.tipo] || 0) + Number(g.valor);
+        }
+
+        const dataGasto = new Date(g.data);
+        if (dataGasto >= dias30Atras) {
+          total30Dias += Number(g.valor);
+        } else {
+          totalAnterior += Number(g.valor);
         }
       });
 
@@ -105,6 +158,8 @@ export default function Financeiro() {
 
       return {
         total: totalGastos,
+        total30Dias,
+        totalAnterior,
         porTipo,
         chartData,
       };
@@ -112,62 +167,45 @@ export default function Financeiro() {
     enabled: !!user,
   });
 
-  const createGastoMutation = useMutation({
-    mutationFn: async () => {
-      if (!user) throw new Error('Usuário não autenticado');
-
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
       const { error } = await supabase
         .from('gastos')
-        .insert({
-          user_id: user.id,
-          data,
-          tipo,
-          valor: parseFloat(valor),
-          descricao,
-          aplicacao,
-          lote_id: aplicacao === 'lote' ? loteId : null,
-        });
+        .delete()
+        .eq('id', id);
 
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['financeiro'] });
       queryClient.invalidateQueries({ queryKey: ['gastos'] });
-      toast.success('Gasto registrado!');
-      setDialogOpen(false);
-      resetForm();
+      queryClient.invalidateQueries({ queryKey: ['financeiro-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['gastos-por-tipo'] });
+      toast.success('Gasto excluído com sucesso!');
+      setDeleteDialogOpen(false);
+      setGastoToDelete(null);
     },
     onError: (error: any) => {
-      toast.error('Erro ao registrar gasto', {
+      console.error('Erro ao excluir gasto:', error);
+      toast.error('Erro ao excluir gasto', {
         description: error.message,
       });
     },
   });
 
-  const resetForm = () => {
-    setData(new Date().toISOString().split('T')[0]);
-    setTipo('');
-    setValor('');
-    setDescricao('');
-    setAplicacao('todos');
-    setLoteId('');
+  const handleEdit = (gasto: Gasto) => {
+    setSelectedGasto(gasto);
+    setModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tipo) {
-      toast.error('Selecione o tipo de gasto');
-      return;
-    }
-    if (!valor || parseFloat(valor) <= 0) {
-      toast.error('Informe um valor válido');
-      return;
-    }
-    if (!descricao.trim()) {
-      toast.error('Informe a descrição');
-      return;
-    }
-    createGastoMutation.mutate();
+  const handleDelete = (id: string) => {
+    setGastoToDelete(id);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleNewGasto = () => {
+    setSelectedGasto(null);
+    setModalOpen(true);
   };
 
   const formatCurrency = (value: number) => {
@@ -176,6 +214,18 @@ export default function Financeiro() {
       currency: 'BRL',
     }).format(value);
   };
+
+  const getAplicacaoLabel = (gasto: Gasto) => {
+    if (gasto.aplicacao === 'lote' && gasto.lotes) {
+      return `Lote: ${gasto.lotes.nome}`;
+    }
+    if (gasto.aplicacao === 'animal' && gasto.animais) {
+      return `#${gasto.animais.numero_brinco}`;
+    }
+    return 'Todos';
+  };
+
+  const variacao30Dias = stats ? ((stats.total30Dias - stats.totalAnterior) / (stats.totalAnterior || 1)) * 100 : 0;
 
   return (
     <AppLayout>
@@ -187,163 +237,79 @@ export default function Financeiro() {
             <p className="text-muted-foreground">Controle de gastos e investimentos</p>
           </div>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="hidden sm:flex">
-                <Plus className="mr-2 h-4 w-4" />
-                Novo Gasto
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Registrar Gasto</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="data">Data *</Label>
-                  <Input
-                    id="data"
-                    type="date"
-                    value={data}
-                    onChange={(e) => setData(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="tipo">Tipo *</Label>
-                  <Select value={tipo} onValueChange={setTipo}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o tipo" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {tiposGasto.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="valor">Valor (R$) *</Label>
-                  <Input
-                    id="valor"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Ex: 1500.00"
-                    value={valor}
-                    onChange={(e) => setValor(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="descricao">Descrição *</Label>
-                  <Input
-                    id="descricao"
-                    placeholder="Ex: Ração 10 toneladas"
-                    value={descricao}
-                    onChange={(e) => setDescricao(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Aplicar em:</Label>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="aplicacao"
-                        value="todos"
-                        checked={aplicacao === 'todos'}
-                        onChange={(e) => setAplicacao(e.target.value)}
-                        className="h-4 w-4"
-                      />
-                      Todos animais
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="aplicacao"
-                        value="lote"
-                        checked={aplicacao === 'lote'}
-                        onChange={(e) => setAplicacao(e.target.value)}
-                        className="h-4 w-4"
-                      />
-                      Lote
-                    </label>
-                  </div>
-                </div>
-
-                {aplicacao === 'lote' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="lote">Lote *</Label>
-                    <Select value={loteId} onValueChange={setLoteId}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione o lote" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {lotes?.map((lote) => (
-                          <SelectItem key={lote.id} value={lote.id}>
-                            {lote.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                <div className="flex gap-3 pt-4">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => setDialogOpen(false)}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    type="submit"
-                    className="flex-1"
-                    disabled={createGastoMutation.isPending}
-                  >
-                    {createGastoMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Salvando...
-                      </>
-                    ) : (
-                      'Salvar'
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
+          <Button onClick={handleNewGasto} className="hidden sm:flex">
+            <Plus className="mr-2 h-4 w-4" />
+            Novo Gasto
+          </Button>
         </div>
 
-        {/* Total Card */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <DollarSign className="h-4 w-4" />
-              Total Investido
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-10 w-48" />
-            ) : (
-              <p className="text-3xl font-bold text-primary">
-                {formatCurrency(stats?.total || 0)}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        {/* Stats Cards */}
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Total Investido */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Total Investido
+              </CardTitle>
+              <DollarSign className="h-4 w-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              {statsLoading ? (
+                <Skeleton className="h-10 w-48" />
+              ) : (
+                <p className="text-3xl font-bold text-primary">
+                  {formatCurrency(stats?.total || 0)}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Últimos 30 dias */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Últimos 30 dias
+              </CardTitle>
+              {variacao30Dias >= 0 ? (
+                <TrendingUp className="h-4 w-4 text-destructive" />
+              ) : (
+                <TrendingDown className="h-4 w-4 text-success" />
+              )}
+            </CardHeader>
+            <CardContent>
+              {statsLoading ? (
+                <Skeleton className="h-10 w-48" />
+              ) : (
+                <div className="flex items-baseline gap-2">
+                  <p className="text-2xl font-bold">
+                    {formatCurrency(stats?.total30Dias || 0)}
+                  </p>
+                  <Badge variant={variacao30Dias >= 0 ? 'destructive' : 'default'}>
+                    {variacao30Dias >= 0 ? '+' : ''}{variacao30Dias.toFixed(0)}%
+                  </Badge>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Registros */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Total de Registros
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {gastosLoading ? (
+                <Skeleton className="h-10 w-20" />
+              ) : (
+                <p className="text-2xl font-bold">
+                  {gastos?.length || 0}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Chart */}
         <Card className="mb-6">
@@ -351,10 +317,10 @@ export default function Financeiro() {
             <CardTitle className="text-lg">Distribuição de Custos</CardTitle>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
+            {statsLoading ? (
               <Skeleton className="h-64 w-full" />
             ) : stats?.chartData && stats.chartData.length > 0 ? (
-              <div className="h-64">
+              <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -362,16 +328,17 @@ export default function Financeiro() {
                       cx="50%"
                       cy="50%"
                       labelLine={false}
-                      outerRadius={80}
+                      outerRadius={100}
                       fill="#8884d8"
                       dataKey="value"
                       label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
                     >
-                      {stats.chartData.map((entry, index) => (
+                      {stats.chartData.map((_, index) => (
                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                       ))}
                     </Pie>
                     <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                    <Legend />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -383,47 +350,137 @@ export default function Financeiro() {
           </CardContent>
         </Card>
 
-        {/* Breakdown */}
-        {stats?.porTipo && Object.keys(stats.porTipo).length > 0 && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Detalhamento</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {Object.entries(stats.porTipo)
-                .filter(([_, val]) => val > 0)
-                .sort((a, b) => b[1] - a[1])
-                .map(([tipo, valor], index) => (
-                  <div key={tipo} className="flex items-center justify-between rounded-lg border p-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="h-3 w-3 rounded-full"
-                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                      />
-                      <span className="font-medium">{tipo}</span>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(valor)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {((valor / stats.total) * 100).toFixed(1)}%
-                      </p>
-                    </div>
-                  </div>
+        {/* Tabela de gastos */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Histórico de Gastos</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {gastosLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
                 ))}
-            </CardContent>
-          </Card>
-        )}
+              </div>
+            ) : gastos && gastos.length > 0 ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead className="hidden sm:table-cell">Descrição</TableHead>
+                      <TableHead>Valor</TableHead>
+                      <TableHead className="hidden md:table-cell">Aplicação</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {gastos.map((gasto) => (
+                      <TableRow key={gasto.id}>
+                        <TableCell>
+                          {format(new Date(gasto.data + 'T12:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {tipoIcons[gasto.tipo]}
+                            <span className="hidden sm:inline">{gasto.tipo}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden max-w-xs truncate sm:table-cell">
+                          {gasto.descricao}
+                        </TableCell>
+                        <TableCell className="font-medium text-primary">
+                          {formatCurrency(Number(gasto.valor))}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <Badge variant="outline">
+                            {getAplicacaoLabel(gasto)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleEdit(gasto)}
+                            >
+                              <Edit2 className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDelete(gasto.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="flex h-32 items-center justify-center text-muted-foreground">
+                <p>Nenhum gasto registrado. Clique em "Novo Gasto" para começar.</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Mobile FAB */}
         <div className="fixed bottom-20 right-4 md:hidden">
           <Button
             size="lg"
             className="h-14 w-14 rounded-full shadow-lg"
-            onClick={() => setDialogOpen(true)}
+            onClick={handleNewGasto}
           >
             <Plus className="h-6 w-6" />
           </Button>
         </div>
+
+        {/* Gasto Modal */}
+        <GastoModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          editData={selectedGasto ? {
+            id: selectedGasto.id,
+            data: selectedGasto.data,
+            tipo: selectedGasto.tipo,
+            valor: Number(selectedGasto.valor),
+            descricao: selectedGasto.descricao,
+            aplicacao: selectedGasto.aplicacao || 'todos',
+            lote_id: selectedGasto.lote_id || undefined,
+            animal_id: selectedGasto.animal_id || undefined,
+          } : undefined}
+        />
+
+        {/* Delete Confirmation */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir este gasto? Esta ação não pode ser desfeita.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => gastoToDelete && deleteMutation.mutate(gastoToDelete)}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  'Excluir'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );

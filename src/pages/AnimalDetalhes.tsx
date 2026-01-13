@@ -60,6 +60,7 @@ import {
 } from 'recharts';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { daysBetweenDateOnly, parseDateOnly } from '@/lib/date';
 import { PesagemModal } from '@/components/modals/PesagemModal';
 
 export default function AnimalDetalhes() {
@@ -72,7 +73,7 @@ export default function AnimalDetalhes() {
   const [moverLoteOpen, setMoverLoteOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [novoLoteId, setNovoLoteId] = useState('');
-  const [dataMudanca, setDataMudanca] = useState(new Date().toISOString().split('T')[0]);
+  const [dataMudanca, setDataMudanca] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [motivoMudanca, setMotivoMudanca] = useState('');
 
   // Fetch animal
@@ -102,7 +103,8 @@ export default function AnimalDetalhes() {
         .from('pesagens')
         .select('*')
         .eq('animal_id', id)
-        .order('data', { ascending: true });
+        .order('data', { ascending: true })
+        .order('created_at', { ascending: true });
       if (error) throw error;
       return data;
     },
@@ -161,7 +163,7 @@ export default function AnimalDetalhes() {
     const ultimaPesagem = pesagens?.[pesagens.length - 1];
     const pesoAtual = ultimaPesagem ? Number(ultimaPesagem.peso) : Number(animal.peso_entrada);
     const ganhoTotal = pesoAtual - Number(animal.peso_entrada);
-    const diasConfinamento = Math.max(1, Math.floor((new Date().getTime() - new Date(animal.data_entrada).getTime()) / (1000 * 60 * 60 * 24)));
+    const diasConfinamento = daysBetweenDateOnly(animal.data_entrada);
     const gmd = ganhoTotal / diasConfinamento;
 
     // Custos
@@ -260,10 +262,11 @@ export default function AnimalDetalhes() {
   };
 
   // Dados do gráfico
-  const chartData = pesagens?.map((p) => ({
-    data: format(new Date(p.data), 'dd/MM', { locale: ptBR }),
-    peso: Number(p.peso),
-  })) || [];
+  const chartData =
+    pesagens?.map((p) => ({
+      data: format(parseDateOnly(p.data), 'dd/MM', { locale: ptBR }),
+      peso: Number(p.peso),
+    })) || [];
 
   if (animalLoading) {
     return (
@@ -435,7 +438,7 @@ export default function AnimalDetalhes() {
               <CardContent className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <p className="text-sm text-muted-foreground">Data de Entrada</p>
-                  <p className="font-medium">{format(new Date(animal.data_entrada), 'dd/MM/yyyy')}</p>
+                  <p className="font-medium">{format(parseDateOnly(animal.data_entrada), 'dd/MM/yyyy')}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Peso de Entrada</p>
@@ -493,7 +496,7 @@ export default function AnimalDetalhes() {
                           <div>
                             <p className="font-medium">{Number(p.peso)}kg</p>
                             <p className="text-sm text-muted-foreground">
-                              {format(new Date(p.data), 'dd/MM/yyyy')}
+                              {format(parseDateOnly(p.data), 'dd/MM/yyyy')}
                             </p>
                           </div>
                           {diff !== 0 && (
@@ -528,7 +531,7 @@ export default function AnimalDetalhes() {
                         <div>
                           <p className="font-medium">{g.descricao}</p>
                           <p className="text-sm text-muted-foreground">
-                            {g.tipo} • {format(new Date(g.data), 'dd/MM/yyyy')}
+                            {g.tipo} • {format(parseDateOnly(g.data), 'dd/MM/yyyy')}
                           </p>
                         </div>
                         <p className="font-semibold text-primary">{formatCurrency(Number(g.valor))}</p>
@@ -558,12 +561,12 @@ export default function AnimalDetalhes() {
                         <div>
                           <p className="font-medium">{p.produto}</p>
                           <p className="text-sm text-muted-foreground">
-                            {p.tipo} • {format(new Date(p.data), 'dd/MM/yyyy')}
+                            {p.tipo} • {format(parseDateOnly(p.data), 'dd/MM/yyyy')}
                           </p>
                         </div>
                         {p.proxima_dose && (
                           <Badge variant="outline">
-                            Próx: {format(new Date(p.proxima_dose), 'dd/MM')}
+                            Próx: {format(parseDateOnly(p.proxima_dose), 'dd/MM')}
                           </Badge>
                         )}
                       </div>

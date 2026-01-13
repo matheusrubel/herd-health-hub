@@ -48,7 +48,15 @@ export function PesagemModal({ open, onOpenChange, animalId }: PesagemModalProps
 
   const [selectedAnimalId, setSelectedAnimalId] = useState(animalId || '');
   const [peso, setPeso] = useState('');
-  const [data, setData] = useState(new Date().toISOString().split('T')[0]);
+  // Usa formato ISO local para evitar problemas de timezone
+  const getLocalDateString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const [data, setData] = useState(getLocalDateString());
   const [responsavelId, setResponsavelId] = useState('');
   const [observacoes, setObservacoes] = useState('');
   const [comboboxOpen, setComboboxOpen] = useState(false);
@@ -165,7 +173,7 @@ export function PesagemModal({ open, onOpenChange, animalId }: PesagemModalProps
   const resetForm = () => {
     setSelectedAnimalId(animalId || '');
     setPeso('');
-    setData(new Date().toISOString().split('T')[0]);
+    setData(getLocalDateString());
     setResponsavelId('');
     setObservacoes('');
     setShowWarning(null);

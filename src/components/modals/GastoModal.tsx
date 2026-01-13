@@ -185,9 +185,16 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
     mutationFn: async (values: GastoFormData) => {
       if (!user) throw new Error('Usuário não autenticado');
 
+      // Formata a data de forma segura para evitar problemas de timezone
+      const dataLocal = new Date(values.data);
+      const year = dataLocal.getFullYear();
+      const month = String(dataLocal.getMonth() + 1).padStart(2, '0');
+      const day = String(dataLocal.getDate()).padStart(2, '0');
+      const dataFormatada = `${year}-${month}-${day}`;
+
       const gastoData = {
         user_id: user.id,
-        data: format(values.data, 'yyyy-MM-dd'),
+        data: dataFormatada,
         tipo: values.tipo,
         valor: parseFloat(values.valor.replace(',', '.')),
         descricao: values.descricao.trim(),

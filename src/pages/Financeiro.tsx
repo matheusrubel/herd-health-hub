@@ -135,8 +135,11 @@ const Financeiro = () => {
     }).format(value || 0);
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('pt-BR');
+  const formatDate = (dateStr: string) => {
+    // Parse seguro de data para evitar problemas de timezone
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('pt-BR');
   };
 
   const getAplicacaoText = (gasto: any) => {

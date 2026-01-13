@@ -44,7 +44,6 @@ import { Loader2, CalendarIcon, Wheat, Syringe, Users, MoreHorizontal, ShoppingC
 import { cn } from '@/lib/utils';
 
 const tiposGasto = [
-  { value: 'Aquisição', label: 'Aquisição', icon: ShoppingCart },
   { value: 'Alimentação', label: 'Alimentação', icon: Wheat },
   { value: 'Sanitário', label: 'Sanitário', icon: Syringe },
   { value: 'Mão de Obra', label: 'Mão de Obra', icon: Users },

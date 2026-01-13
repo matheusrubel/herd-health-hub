@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { GastoModal } from '@/components/modals/GastoModal';
+import { toast } from 'sonner';
+import {
+  DollarSign,
+  Plus,
+  Trash2,
+  ShoppingCart,
+  Receipt,
+} from 'lucide-react';
 import {
   Table,
   TableBody,
@@ -16,34 +23,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { GastoModal } from '@/components/modals/GastoModal';
-import { toast } from 'sonner';
-import { 
-  Plus, 
-  DollarSign, 
-  TrendingUp, 
-  TrendingDown,
-  Wheat, 
-  Syringe, 
-  Users, 
-  MoreHorizontal,
-  ShoppingCart,
-  Edit2,
-  Trash2,
-  Loader2,
-} from 'lucide-react';
-import { format, subDays } from 'date-fns';
-import { ptBR } from 'date-fns/locale';
-import {
   PieChart,
   Pie,
   Cell,
@@ -52,47 +31,42 @@ import {
   Legend,
 } from 'recharts';
 
-const tipoIcons: Record<string, React.ReactNode> = {
-  'Aquisição': <ShoppingCart className="h-4 w-4" />,
-  'Alimentação': <Wheat className="h-4 w-4" />,
-  'Sanitário': <Syringe className="h-4 w-4" />,
-  'Mão de Obra': <Users className="h-4 w-4" />,
-  'Outros': <MoreHorizontal className="h-4 w-4" />,
-};
+const COLORS = ['#10B981', '#6366F1', '#F59E0B', '#EF4444', '#8B5CF6'];
 
-const COLORS = [
-  'hsl(152, 69%, 31%)', // verde
-  'hsl(239, 84%, 67%)', // indigo
-  'hsl(38, 92%, 50%)',  // amarelo
-  'hsl(0, 84%, 60%)',   // vermelho
-  'hsl(270, 60%, 50%)', // roxo
-];
-
-interface Gasto {
-  id: string;
-  data: string;
-  tipo: string;
-  valor: number;
-  descricao: string;
-  aplicacao: string | null;
-  lote_id: string | null;
-  animal_id: string | null;
-  lotes: { nome: string } | null;
-  animais: { numero_brinco: string } | null;
-}
-
-export default function Financeiro() {
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
+const Financeiro = () => {
   const [modalOpen, setModalOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedGasto, setSelectedGasto] = useState<Gasto | null>(null);
-  const [gastoToDelete, setGastoToDelete] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  // Fetch gastos
-  const { data: gastos, isLoading: gastosLoading } = useQuery({
-    queryKey: ['gastos', user?.id],
+  // ════════════════════════════════════════
+  // 1. BUSCAR AQUISIÇÕES (DOS ANIMAIS)
+  // ════════════════════════════════════════
+  const { data: aquisicoes, isLoading: aquisicoesLoading } = useQuery({
+    queryKey: ['financeiro-aquisicoes'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
+      const { data, error } = await supabase
+        .from('animais')
+        .select('id, numero_brinco, valor_aquisicao, data_entrada')
+        .eq('user_id', user.id)
+        .eq('ativo', true)
+        .order('data_entrada', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // ════════════════════════════════════════
+  // 2. BUSCAR GASTOS OPERACIONAIS
+  // ════════════════════════════════════════
+  const { data: gastos, isLoading: gastosLoading } = useQuery({
+    queryKey: ['financeiro-gastos'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+
       const { data, error } = await supabase
         .from('gastos')
         .select(`
@@ -100,321 +74,224 @@ export default function Financeiro() {
           lotes(nome),
           animais(numero_brinco)
         `)
+        .eq('user_id', user.id)
+        .neq('tipo', 'Aquisição')
         .order('data', { ascending: false });
 
       if (error) throw error;
-      return data as Gasto[];
+      return data || [];
     },
-    enabled: !!user,
   });
 
-  // Fetch stats
-  const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ['financeiro-stats', user?.id],
-    queryFn: async () => {
-      // Gastos
-      const { data: gastosData, error } = await supabase
-        .from('gastos')
-        .select('tipo, valor, data');
+  // ════════════════════════════════════════
+  // 3. CALCULAR TOTAIS
+  // ════════════════════════════════════════
+  const totalAquisicoes = aquisicoes?.reduce((acc, a) => acc + Number(a.valor_aquisicao || 0), 0) || 0;
+  const totalGastos = gastos?.reduce((acc, g) => acc + Number(g.valor || 0), 0) || 0;
+  const totalGeral = totalAquisicoes + totalGastos;
 
-      if (error) throw error;
+  // ════════════════════════════════════════
+  // 4. DISTRIBUIÇÃO PARA GRÁFICO
+  // ════════════════════════════════════════
+  const distribuicao = () => {
+    const dist: Record<string, number> = {};
 
-      // Aquisições dos animais
-      const { data: animais } = await supabase
-        .from('animais')
-        .select('valor_aquisicao')
-        .eq('ativo', true);
+    // Adicionar aquisições
+    if (totalAquisicoes > 0) {
+      dist['Aquisição'] = totalAquisicoes;
+    }
 
-      const totalAquisicao = animais?.reduce((sum, a) => sum + Number(a.valor_aquisicao || 0), 0) || 0;
+    // Adicionar gastos por tipo
+    gastos?.forEach((g: any) => {
+      dist[g.tipo] = (dist[g.tipo] || 0) + Number(g.valor);
+    });
 
-      // Agrupar por tipo
-      const porTipo: Record<string, number> = {
-        'Aquisição': totalAquisicao,
-      };
+    return Object.entries(dist).map(([name, value]) => ({ name, value }));
+  };
 
-      const hoje = new Date();
-      const dias30Atras = subDays(hoje, 30);
-      let total30Dias = 0;
-      let totalAnterior = 0;
-
-      gastosData?.forEach(g => {
-        if (g.tipo !== 'Aquisição') {
-          porTipo[g.tipo] = (porTipo[g.tipo] || 0) + Number(g.valor);
-        }
-
-        const dataGasto = new Date(g.data);
-        if (dataGasto >= dias30Atras) {
-          total30Dias += Number(g.valor);
-        } else {
-          totalAnterior += Number(g.valor);
-        }
-      });
-
-      const totalGastos = Object.values(porTipo).reduce((sum, val) => sum + val, 0);
-
-      const chartData = Object.entries(porTipo)
-        .filter(([_, val]) => val > 0)
-        .map(([name, value]) => ({ name, value }));
-
-      return {
-        total: totalGastos,
-        total30Dias,
-        totalAnterior,
-        porTipo,
-        chartData,
-      };
-    },
-    enabled: !!user,
-  });
-
+  // ════════════════════════════════════════
+  // 5. DELETAR GASTO
+  // ════════════════════════════════════════
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from('gastos')
-        .delete()
-        .eq('id', id);
-
+      const { error } = await supabase.from('gastos').delete().eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['gastos'] });
-      queryClient.invalidateQueries({ queryKey: ['financeiro-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['financeiro-gastos'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-      queryClient.invalidateQueries({ queryKey: ['gastos-por-tipo'] });
+      queryClient.invalidateQueries({ queryKey: ['custos-distribuicao'] });
       toast.success('Gasto excluído com sucesso!');
-      setDeleteDialogOpen(false);
-      setGastoToDelete(null);
     },
     onError: (error: any) => {
-      console.error('Erro ao excluir gasto:', error);
-      toast.error('Erro ao excluir gasto', {
-        description: error.message,
-      });
+      toast.error('Erro ao excluir gasto: ' + error.message);
     },
   });
-
-  const handleEdit = (gasto: Gasto) => {
-    setSelectedGasto(gasto);
-    setModalOpen(true);
-  };
-
-  const handleDelete = (id: string) => {
-    setGastoToDelete(id);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleNewGasto = () => {
-    setSelectedGasto(null);
-    setModalOpen(true);
-  };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL',
-    }).format(value);
+    }).format(value || 0);
   };
 
-  const getAplicacaoLabel = (gasto: Gasto) => {
-    if (gasto.aplicacao === 'lote' && gasto.lotes) {
-      return `Lote: ${gasto.lotes.nome}`;
-    }
-    if (gasto.aplicacao === 'animal' && gasto.animais) {
-      return `#${gasto.animais.numero_brinco}`;
-    }
-    return 'Todos';
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('pt-BR');
   };
 
-  const variacao30Dias = stats ? ((stats.total30Dias - stats.totalAnterior) / (stats.totalAnterior || 1)) * 100 : 0;
+  const getAplicacaoText = (gasto: any) => {
+    if (gasto.aplicacao === 'todos') return 'Todos';
+    if (gasto.aplicacao === 'lote') return `Lote: ${gasto.lotes?.nome || '-'}`;
+    if (gasto.aplicacao === 'animal') return `#${gasto.animais?.numero_brinco || '-'}`;
+    return '-';
+  };
+
+  const isLoading = aquisicoesLoading || gastosLoading;
+
+  if (isLoading) {
+    return (
+      <AppLayout>
+        <div className="container py-6">
+          <Skeleton className="h-8 w-48 mb-6" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-32" />
+            ))}
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
-      <div className="container py-6">
-        {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
+      <div className="container py-6 space-y-6">
+        {/* ════════════════════════════════════════ */}
+        {/* HEADER */}
+        {/* ════════════════════════════════════════ */}
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Financeiro</h1>
+            <h1 className="text-3xl font-bold">Financeiro</h1>
             <p className="text-muted-foreground">Controle de gastos e investimentos</p>
           </div>
-
-          <Button onClick={handleNewGasto} className="hidden sm:flex">
-            <Plus className="mr-2 h-4 w-4" />
+          <Button onClick={() => setModalOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" />
             Novo Gasto
           </Button>
         </div>
 
-        {/* Stats Cards */}
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {/* Total Investido */}
+        {/* ════════════════════════════════════════ */}
+        {/* CARDS DE RESUMO */}
+        {/* ════════════════════════════════════════ */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total Investido
-              </CardTitle>
-              <DollarSign className="h-4 w-4 text-primary" />
+              <CardTitle className="text-sm font-medium">Investimento Total</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {statsLoading ? (
-                <Skeleton className="h-10 w-48" />
-              ) : (
-                <p className="text-3xl font-bold text-primary">
-                  {formatCurrency(stats?.total || 0)}
-                </p>
-              )}
+              <div className="text-2xl font-bold text-green-600">{formatCurrency(totalGeral)}</div>
+              <p className="text-xs text-muted-foreground">Aquisições + Operacional</p>
             </CardContent>
           </Card>
 
-          {/* Últimos 30 dias */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Últimos 30 dias
-              </CardTitle>
-              {variacao30Dias >= 0 ? (
-                <TrendingUp className="h-4 w-4 text-destructive" />
-              ) : (
-                <TrendingDown className="h-4 w-4 text-success" />
-              )}
+              <CardTitle className="text-sm font-medium">Aquisições</CardTitle>
+              <ShoppingCart className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {statsLoading ? (
-                <Skeleton className="h-10 w-48" />
-              ) : (
-                <div className="flex items-baseline gap-2">
-                  <p className="text-2xl font-bold">
-                    {formatCurrency(stats?.total30Dias || 0)}
-                  </p>
-                  <Badge variant={variacao30Dias >= 0 ? 'destructive' : 'default'}>
-                    {variacao30Dias >= 0 ? '+' : ''}{variacao30Dias.toFixed(0)}%
-                  </Badge>
-                </div>
-              )}
+              <div className="text-2xl font-bold">{formatCurrency(totalAquisicoes)}</div>
+              <p className="text-xs text-muted-foreground">{aquisicoes?.length || 0} animais</p>
             </CardContent>
           </Card>
 
-          {/* Registros */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                Total de Registros
-              </CardTitle>
+              <CardTitle className="text-sm font-medium">Gastos Operacionais</CardTitle>
+              <Receipt className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              {gastosLoading ? (
-                <Skeleton className="h-10 w-20" />
-              ) : (
-                <p className="text-2xl font-bold">
-                  {gastos?.length || 0}
-                </p>
-              )}
+              <div className="text-2xl font-bold">{formatCurrency(totalGastos)}</div>
+              <p className="text-xs text-muted-foreground">{gastos?.length || 0} registros</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Chart */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle className="text-lg">Distribuição de Custos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {statsLoading ? (
-              <Skeleton className="h-64 w-full" />
-            ) : stats?.chartData && stats.chartData.length > 0 ? (
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={stats.chartData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {stats.chartData.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => formatCurrency(Number(value))} />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="flex h-64 items-center justify-center text-muted-foreground">
-                <p>Nenhum gasto registrado</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {/* ════════════════════════════════════════ */}
+        {/* GRÁFICO DE DISTRIBUIÇÃO */}
+        {/* ════════════════════════════════════════ */}
+        {distribuicao().length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Distribuição de Custos</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={distribuicao()}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {distribuicao().map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* Tabela de gastos */}
+        {/* ════════════════════════════════════════ */}
+        {/* SEÇÃO 1: AQUISIÇÕES DE ANIMAIS */}
+        {/* ════════════════════════════════════════ */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Histórico de Gastos</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShoppingCart className="h-5 w-5 text-green-600" />
+                <CardTitle>💰 Aquisições de Animais</CardTitle>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Total: <span className="font-bold text-green-600">{formatCurrency(totalAquisicoes)}</span>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mt-2">
+              Valores de aquisição cadastrados no registro de cada animal
+            </p>
           </CardHeader>
           <CardContent>
-            {gastosLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map((i) => (
-                  <Skeleton key={i} className="h-16 w-full" />
-                ))}
-              </div>
-            ) : gastos && gastos.length > 0 ? (
+            {aquisicoes && aquisicoes.length > 0 ? (
               <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead className="hidden sm:table-cell">Descrição</TableHead>
-                      <TableHead>Valor</TableHead>
-                      <TableHead className="hidden md:table-cell">Aplicação</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
+                      <TableHead>Data Entrada</TableHead>
+                      <TableHead>Animal</TableHead>
+                      <TableHead className="text-right">Valor Aquisição</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {gastos.map((gasto) => (
-                      <TableRow key={gasto.id}>
-                        <TableCell>
-                          {format(new Date(gasto.data + 'T12:00:00'), 'dd/MM/yyyy', { locale: ptBR })}
-                        </TableCell>
+                    {aquisicoes.map((animal: any) => (
+                      <TableRow key={animal.id}>
+                        <TableCell>{formatDate(animal.data_entrada)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            {tipoIcons[gasto.tipo]}
-                            <span className="hidden sm:inline">{gasto.tipo}</span>
+                            <div className="w-2 h-2 bg-green-500 rounded-full" />
+                            Animal #{animal.numero_brinco}
                           </div>
                         </TableCell>
-                        <TableCell className="hidden max-w-xs truncate sm:table-cell">
-                          {gasto.descricao}
-                        </TableCell>
-                        <TableCell className="font-medium text-primary">
-                          {formatCurrency(Number(gasto.valor))}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          <Badge variant="outline">
-                            {getAplicacaoLabel(gasto)}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleEdit(gasto)}
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDelete(gasto.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </div>
+                        <TableCell className="text-right font-medium text-green-600">
+                          {formatCurrency(animal.valor_aquisicao)}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -422,66 +299,144 @@ export default function Financeiro() {
                 </Table>
               </div>
             ) : (
-              <div className="flex h-32 items-center justify-center text-muted-foreground">
-                <p>Nenhum gasto registrado. Clique em "Novo Gasto" para começar.</p>
+              <div className="text-center py-8 text-muted-foreground">
+                <ShoppingCart className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>Nenhuma aquisição registrada</p>
+                <p className="text-sm">Cadastre animais com valor de aquisição</p>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Mobile FAB */}
-        <div className="fixed bottom-20 right-4 md:hidden">
-          <Button
-            size="lg"
-            className="h-14 w-14 rounded-full shadow-lg"
-            onClick={handleNewGasto}
-          >
-            <Plus className="h-6 w-6" />
-          </Button>
-        </div>
+        {/* ════════════════════════════════════════ */}
+        {/* SEÇÃO 2: GASTOS OPERACIONAIS */}
+        {/* ════════════════════════════════════════ */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Receipt className="h-5 w-5 text-blue-600" />
+                <CardTitle>📋 Gastos Operacionais</CardTitle>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Total: <span className="font-bold text-blue-600">{formatCurrency(totalGastos)}</span>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground mt-2">
+              Gastos operacionais (alimentação, sanitário, mão de obra, etc)
+            </p>
+          </CardHeader>
+          <CardContent>
+            {gastos && gastos.length > 0 ? (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Descrição</TableHead>
+                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead>Aplicação</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {gastos.map((gasto: any) => (
+                      <TableRow key={gasto.id}>
+                        <TableCell>{formatDate(gasto.data)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {gasto.tipo === 'Alimentação' && '🌾'}
+                            {gasto.tipo === 'Sanitário' && '💉'}
+                            {gasto.tipo === 'Mão de Obra' && '👷'}
+                            {gasto.tipo === 'Outros' && '📦'}
+                            <span>{gasto.tipo}</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>{gasto.descricao}</TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatCurrency(gasto.valor)}
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {getAplicacaoText(gasto)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              if (window.confirm('Deseja excluir este gasto?')) {
+                                deleteMutation.mutate(gasto.id);
+                              }
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <Receipt className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>Nenhum gasto operacional registrado</p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => setModalOpen(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Cadastrar Primeiro Gasto
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-        {/* Gasto Modal */}
-        <GastoModal
-          open={modalOpen}
-          onOpenChange={setModalOpen}
-          editData={selectedGasto ? {
-            id: selectedGasto.id,
-            data: selectedGasto.data,
-            tipo: selectedGasto.tipo,
-            valor: Number(selectedGasto.valor),
-            descricao: selectedGasto.descricao,
-            aplicacao: selectedGasto.aplicacao || 'todos',
-            lote_id: selectedGasto.lote_id || undefined,
-            animal_id: selectedGasto.animal_id || undefined,
-          } : undefined}
-        />
+        {/* ════════════════════════════════════════ */}
+        {/* CARD DE RESUMO TOTAL */}
+        {/* ════════════════════════════════════════ */}
+        {(totalAquisicoes > 0 || totalGastos > 0) && (
+          <Card className="bg-gradient-to-r from-green-50 to-blue-50 border-2 border-green-200">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center">
+                    <DollarSign className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Investimento Total</p>
+                    <h3 className="text-3xl font-bold text-green-700">
+                      {formatCurrency(totalGeral)}
+                    </h3>
+                  </div>
+                </div>
+                <div className="text-right space-y-1">
+                  <div className="flex items-center gap-2 justify-end">
+                    <ShoppingCart className="h-4 w-4 text-green-600" />
+                    <span className="text-sm">Aquisições:</span>
+                    <span className="font-semibold">{formatCurrency(totalAquisicoes)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-end">
+                    <Receipt className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm">Operacional:</span>
+                    <span className="font-semibold">{formatCurrency(totalGastos)}</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* Delete Confirmation */}
-        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-              <AlertDialogDescription>
-                Tem certeza que deseja excluir este gasto? Esta ação não pode ser desfeita.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancelar</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => gastoToDelete && deleteMutation.mutate(gastoToDelete)}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                disabled={deleteMutation.isPending}
-              >
-                {deleteMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  'Excluir'
-                )}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Modal de Gastos */}
+        <GastoModal open={modalOpen} onOpenChange={setModalOpen} />
       </div>
     </AppLayout>
   );
-}
+};
+
+export default Financeiro;

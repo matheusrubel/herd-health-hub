@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { daysBetweenDateOnly } from '@/lib/date';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -82,12 +83,13 @@ export default function Animais() {
       if (!animaisData || animaisData.length === 0) return [];
 
       // Fetch últimas pesagens
-      const animalIds = animaisData.map(a => a.id);
+      const animalIds = animaisData.map((a) => a.id);
       const { data: pesagens } = await supabase
         .from('pesagens')
-        .select('animal_id, peso, data')
+        .select('animal_id, peso, data, created_at')
         .in('animal_id', animalIds)
-        .order('data', { ascending: false });
+        .order('data', { ascending: false })
+        .order('created_at', { ascending: false });
 
       const ultimasPesagens = new Map();
       pesagens?.forEach(p => {
@@ -100,7 +102,7 @@ export default function Animais() {
         const ultimaPesagem = ultimasPesagens.get(animal.id);
         const pesoAtual = ultimaPesagem ? Number(ultimaPesagem.peso) : Number(animal.peso_entrada);
         const ganhoTotal = pesoAtual - Number(animal.peso_entrada);
-        const diasConfinamento = Math.max(1, Math.floor((new Date().getTime() - new Date(animal.data_entrada).getTime()) / (1000 * 60 * 60 * 24)));
+        const diasConfinamento = daysBetweenDateOnly(animal.data_entrada);
         const gmd = ganhoTotal / diasConfinamento;
 
         return {

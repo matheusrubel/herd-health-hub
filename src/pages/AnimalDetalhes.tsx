@@ -44,7 +44,6 @@ import {
   DollarSign,
   Target,
   Package,
-  Edit,
   Trash2,
   ArrowRightLeft,
   Loader2,
@@ -126,7 +125,7 @@ export default function AnimalDetalhes() {
     enabled: !!user,
   });
 
-  // Fetch gastos do animal
+  // Fetch gastos diretos do animal
   const { data: gastos } = useQuery({
     queryKey: ['gastos-animal', id],
     queryFn: async () => {
@@ -139,6 +138,37 @@ export default function AnimalDetalhes() {
       return data;
     },
     enabled: !!id && !!user,
+  });
+
+  // ════════════════════════════════════════════════
+  // NOVA QUERY: GASTOS RATEADOS (aplicacao = 'todos')
+  // ════════════════════════════════════════════════
+  const { data: gastosRateados } = useQuery({
+    queryKey: ['gastos-rateados', user?.id],
+    queryFn: async () => {
+      // Total de gastos 'todos'
+      const { data: gastosTodos, error: errorGastos } = await supabase
+        .from('gastos')
+        .select('valor')
+        .eq('user_id', user!.id)
+        .eq('aplicacao', 'todos');
+      
+      if (errorGastos) throw errorGastos;
+      
+      const totalGastosTodos = gastosTodos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
+      
+      // Total de animais ativos
+      const { count: totalAnimais } = await supabase
+        .from('animais')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user!.id)
+        .eq('ativo', true);
+      
+      const rateio = totalAnimais && totalAnimais > 0 ? totalGastosTodos / totalAnimais : 0;
+      
+      return Number(rateio.toFixed(2));
+    },
+    enabled: !!user,
   });
 
   // Fetch protocolos do animal
@@ -156,28 +186,40 @@ export default function AnimalDetalhes() {
     enabled: !!id && !!user,
   });
 
-  // Calcular métricas
+  // ════════════════════════════════════════════════
+  // CÁLCULO DE MÉTRICAS CORRIGIDO
+  // ════════════════════════════════════════════════
   const calcularMetricas = () => {
     if (!animal) return null;
 
     const ultimaPesagem = pesagens?.[pesagens.length - 1];
     const pesoAtual = ultimaPesagem ? Number(ultimaPesagem.peso) : Number(animal.peso_entrada);
     const ganhoTotal = pesoAtual - Number(animal.peso_entrada);
-    const diasConfinamento = daysBetweenDateOnly(animal.data_entrada);
+    const diasConfinamento = Math.max(1, daysBetweenDateOnly(animal.data_entrada));
     const gmd = ganhoTotal / diasConfinamento;
 
-    // Custos
+    // ═══════════════════════════════════════════
+    // CUSTOS CORRETOS (3 FONTES)
+    // ═══════════════════════════════════════════
+    
+    // 1. Custo de aquisição
     const custoAquisicao = Number(animal.valor_aquisicao || 0);
-    const custosGastos = gastos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
-    const custoTotal = custoAquisicao + custosGastos;
+    
+    // 2. Gastos diretos do animal (animal_id específico)
+    const custosGastosDiretos = gastos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
+    
+    // 3. Gastos rateados (aplicacao = 'todos')
+    const custosGastosRateados = gastosRateados || 0;
+    
+    const custoTotal = custoAquisicao + custosGastosDiretos + custosGastosRateados;
     const custoKg = ganhoTotal > 0 ? custoTotal / ganhoTotal : 0;
 
     return {
-      pesoAtual,
-      ganhoTotal,
+      pesoAtual: Number(pesoAtual.toFixed(2)),
+      ganhoTotal: Number(ganhoTotal.toFixed(2)),
       diasConfinamento,
-      gmd: Number(gmd.toFixed(2)),
-      custoTotal,
+      gmd: Number(gmd.toFixed(3)),
+      custoTotal: Number(custoTotal.toFixed(2)),
       custoKg: Number(custoKg.toFixed(2)),
       dataUltimaPesagem: ultimaPesagem?.data,
     };
@@ -340,13 +382,15 @@ export default function AnimalDetalhes() {
           <Card>
             <CardContent className="p-4 text-center">
               <TrendingUp className="mx-auto mb-1 h-5 w-5 text-primary" />
-              <div className="flex items-center justify-center gap-1">
-                <p className="text-2xl font-bold">{metricas?.gmd || 0}</p>
-                <Badge variant={metricas ? getGMDBadge(metricas.gmd).variant : 'outline'} className="text-xs">
-                  {metricas && getGMDBadge(metricas.gmd).label}
-                </Badge>
+              <div className="flex flex-col items-center gap-1">
+                <p className="text-xl font-bold">{metricas?.gmd || 0} kg/dia</p>
+                {metricas && (
+                  <Badge variant={getGMDBadge(metricas.gmd).variant} className="text-xs">
+                    {getGMDBadge(metricas.gmd).label}
+                  </Badge>
+                )}
               </div>
-              <p className="text-xs text-muted-foreground">GMD kg/dia</p>
+              <p className="text-xs text-muted-foreground">GMD</p>
             </CardContent>
           </Card>
 
@@ -501,7 +545,7 @@ export default function AnimalDetalhes() {
                           </div>
                           {diff !== 0 && (
                             <Badge variant={diff > 0 ? 'default' : 'destructive'}>
-                              {diff > 0 ? '+' : ''}{diff}kg
+                              {diff > 0 ? '+' : ''}{diff.toFixed(1)}kg
                             </Badge>
                           )}
                         </div>
@@ -524,25 +568,63 @@ export default function AnimalDetalhes() {
                 <CardTitle className="text-lg">Gastos do Animal</CardTitle>
               </CardHeader>
               <CardContent>
-                {gastos && gastos.length > 0 ? (
-                  <div className="space-y-2">
-                    {gastos.map((g) => (
-                      <div key={g.id} className="flex items-center justify-between rounded-lg border p-3">
-                        <div>
-                          <p className="font-medium">{g.descricao}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {g.tipo} • {format(parseDateOnly(g.data), 'dd/MM/yyyy')}
-                          </p>
-                        </div>
-                        <p className="font-semibold text-primary">{formatCurrency(Number(g.valor))}</p>
-                      </div>
-                    ))}
+                <div className="space-y-3">
+                  {/* Aquisição */}
+                  <div className="flex items-center justify-between rounded-lg border p-3 bg-green-50">
+                    <div>
+                      <p className="font-medium">Valor de Aquisição</p>
+                      <p className="text-sm text-muted-foreground">Cadastro do animal</p>
+                    </div>
+                    <p className="font-semibold text-green-700">{formatCurrency(Number(animal.valor_aquisicao || 0))}</p>
                   </div>
-                ) : (
-                  <p className="py-8 text-center text-muted-foreground">
-                    Nenhum gasto registrado
-                  </p>
-                )}
+
+                  {/* Gastos Diretos */}
+                  {gastos && gastos.length > 0 && (
+                    <>
+                      <p className="text-sm font-medium text-muted-foreground mt-4">Gastos Diretos:</p>
+                      {gastos.map((g) => (
+                        <div key={g.id} className="flex items-center justify-between rounded-lg border p-3">
+                          <div>
+                            <p className="font-medium">{g.descricao}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {g.tipo} • {format(parseDateOnly(g.data), 'dd/MM/yyyy')}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-primary">{formatCurrency(Number(g.valor))}</p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Gastos Rateados */}
+                  {gastosRateados && gastosRateados > 0 && (
+                    <>
+                      <p className="text-sm font-medium text-muted-foreground mt-4">Gastos Rateados:</p>
+                      <div className="flex items-center justify-between rounded-lg border p-3 bg-blue-50">
+                        <div>
+                          <p className="font-medium">Gastos gerais (rateio)</p>
+                          <p className="text-sm text-muted-foreground">Aplicação: Todos os animais</p>
+                        </div>
+                        <p className="font-semibold text-blue-700">{formatCurrency(gastosRateados)}</p>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Total */}
+                  <div className="flex items-center justify-between rounded-lg border-2 border-primary p-3 bg-primary/5 mt-4">
+                    <div>
+                      <p className="font-bold">TOTAL INVESTIDO</p>
+                      <p className="text-sm text-muted-foreground">Aquisição + Diretos + Rateados</p>
+                    </div>
+                    <p className="text-xl font-bold text-primary">{formatCurrency(metricas?.custoTotal || 0)}</p>
+                  </div>
+
+                  {(!gastos || gastos.length === 0) && (!gastosRateados || gastosRateados === 0) && (
+                    <p className="py-4 text-center text-muted-foreground">
+                      Nenhum gasto adicional registrado
+                    </p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

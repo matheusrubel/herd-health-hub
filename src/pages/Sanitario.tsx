@@ -6,6 +6,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { NumericInput } from '@/components/ui/numeric-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -26,9 +27,10 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { Plus, Syringe, Calendar, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import { Plus, Syringe, Calendar, AlertTriangle, CheckCircle, Loader2, Eye } from 'lucide-react';
 import { format, addDays, isBefore, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { ProtocoloDetalhesModal } from '@/components/modals/ProtocoloDetalhesModal';
 
 const tiposProtocolo = [
   'Vacina',
@@ -43,6 +45,8 @@ export default function Sanitario() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedProtocolo, setSelectedProtocolo] = useState<any>(null);
+  const [detalhesOpen, setDetalhesOpen] = useState(false);
 
   // Form state
   const [data, setData] = useState(new Date().toISOString().split('T')[0]);
@@ -289,9 +293,8 @@ export default function Sanitario() {
 
                 <div className="space-y-2">
                   <Label htmlFor="custo">Custo Total (R$)</Label>
-                  <Input
+                  <NumericInput
                     id="custo"
-                    type="number"
                     step="0.01"
                     min="0"
                     placeholder="Ex: 500.00"
@@ -473,7 +476,7 @@ export default function Sanitario() {
                       const isUrgente = dias <= 3;
 
                       return (
-                        <div
+                      <div
                           key={p.id}
                           className={`flex items-start justify-between rounded-lg border p-4 ${
                             isUrgente ? 'border-warning bg-warning/5' : ''
@@ -492,13 +495,25 @@ export default function Sanitario() {
                               </p>
                             </div>
                           </div>
-                          <div className="text-right">
-                            <Badge variant={isUrgente ? 'destructive' : 'outline'}>
-                              {dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `Em ${dias} dias`}
-                            </Badge>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {format(new Date(p.proxima_dose!), 'dd/MM/yyyy')}
-                            </p>
+                          <div className="flex items-center gap-2">
+                            <div className="text-right">
+                              <Badge variant={isUrgente ? 'destructive' : 'outline'}>
+                                {dias === 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : `Em ${dias} dias`}
+                              </Badge>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {format(new Date(p.proxima_dose!), 'dd/MM/yyyy')}
+                              </p>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setSelectedProtocolo(p);
+                                setDetalhesOpen(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
                       );
@@ -530,7 +545,14 @@ export default function Sanitario() {
                 ) : protocolos && protocolos.length > 0 ? (
                   <div className="space-y-2">
                     {protocolos.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between rounded-lg border p-3">
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 cursor-pointer transition-colors"
+                        onClick={() => {
+                          setSelectedProtocolo(p);
+                          setDetalhesOpen(true);
+                        }}
+                      >
                         <div className="flex items-center gap-3">
                           <Syringe className="h-5 w-5 text-primary" />
                           <div>
@@ -540,15 +562,18 @@ export default function Sanitario() {
                             </p>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium">
-                            {format(new Date(p.data), 'dd/MM/yyyy')}
-                          </p>
-                          {p.custo && (
-                            <p className="text-xs text-muted-foreground">
-                              R$ {Number(p.custo).toFixed(2)}
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <p className="text-sm font-medium">
+                              {format(new Date(p.data), 'dd/MM/yyyy')}
                             </p>
-                          )}
+                            {p.custo && (
+                              <p className="text-xs text-muted-foreground">
+                                R$ {Number(p.custo).toFixed(2)}
+                              </p>
+                            )}
+                          </div>
+                          <Eye className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </div>
                     ))}
@@ -573,6 +598,13 @@ export default function Sanitario() {
             <Plus className="h-6 w-6" />
           </Button>
         </div>
+
+        {/* Modal de Detalhes do Protocolo */}
+        <ProtocoloDetalhesModal
+          protocolo={selectedProtocolo}
+          open={detalhesOpen}
+          onOpenChange={setDetalhesOpen}
+        />
       </div>
     </AppLayout>
   );

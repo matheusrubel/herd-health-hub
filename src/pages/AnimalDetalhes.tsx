@@ -274,23 +274,57 @@ export default function AnimalDetalhes() {
     },
   });
 
-  // Mutation para inativar animal
+  // Mutation para EXCLUIR animal permanentemente (com todos os dados)
   const deleteAnimalMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('animais')
-        .update({ ativo: false })
-        .eq('id', id);
+      if (!id) throw new Error('ID do animal não encontrado');
 
-      if (error) throw error;
+      // 1. Deletar pesagens do animal
+      const { error: pesagensError } = await supabase
+        .from('pesagens')
+        .delete()
+        .eq('animal_id', id);
+      if (pesagensError) throw pesagensError;
+
+      // 2. Deletar gastos do animal
+      const { error: gastosError } = await supabase
+        .from('gastos')
+        .delete()
+        .eq('animal_id', id);
+      if (gastosError) throw gastosError;
+
+      // 3. Deletar protocolos sanitários do animal
+      const { error: protocolosError } = await supabase
+        .from('protocolos_sanitarios')
+        .delete()
+        .eq('animal_id', id);
+      if (protocolosError) throw protocolosError;
+
+      // 4. Deletar movimentações do animal
+      const { error: movError } = await supabase
+        .from('movimentacoes_lotes')
+        .delete()
+        .eq('animal_id', id);
+      if (movError) throw movError;
+
+      // 5. Deletar o animal
+      const { error: animalError } = await supabase
+        .from('animais')
+        .delete()
+        .eq('id', id);
+      if (animalError) throw animalError;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['animais'] });
-      toast.success('Animal removido com sucesso!');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['gastos'] });
+      queryClient.invalidateQueries({ queryKey: ['pesagens'] });
+      queryClient.invalidateQueries({ queryKey: ['protocolos'] });
+      toast.success('Animal excluído com sucesso!');
       navigate('/animais');
     },
     onError: (error: any) => {
-      toast.error('Erro ao remover animal', {
+      toast.error('Erro ao excluir animal', {
         description: error.message,
       });
     },
@@ -747,9 +781,16 @@ export default function AnimalDetalhes() {
         <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Remover Animal?</AlertDialogTitle>
-              <AlertDialogDescription>
-                O animal #{animal.numero_brinco} será marcado como inativo. Seus dados históricos serão mantidos para relatórios.
+              <AlertDialogTitle className="text-destructive">⚠️ Excluir Animal Permanentemente?</AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <p>O animal <strong>#{animal.numero_brinco}</strong> será <strong>excluído permanentemente</strong> junto com:</p>
+                <ul className="list-disc list-inside text-sm mt-2 space-y-1">
+                  <li>Todas as pesagens registradas</li>
+                  <li>Todos os gastos associados</li>
+                  <li>Todos os protocolos sanitários</li>
+                  <li>Histórico de movimentações</li>
+                </ul>
+                <p className="text-destructive font-medium mt-3">Esta ação não pode ser desfeita!</p>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -761,10 +802,10 @@ export default function AnimalDetalhes() {
                 {deleteAnimalMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Removendo...
+                    Excluindo...
                   </>
                 ) : (
-                  'Remover'
+                  'Excluir Permanentemente'
                 )}
               </AlertDialogAction>
             </AlertDialogFooter>

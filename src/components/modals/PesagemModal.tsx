@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { NumericInput } from '@/components/ui/numeric-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -274,9 +275,8 @@ export function PesagemModal({ open, onOpenChange, animalId }: PesagemModalProps
           {/* Peso */}
           <div className="space-y-2">
             <Label htmlFor="peso">Nova Pesagem (kg) *</Label>
-            <Input
+            <NumericInput
               id="peso"
-              type="number"
               step="0.01"
               min="1"
               placeholder="Ex: 380"

@@ -181,10 +181,12 @@ export default function Dashboard() {
         }
       });
 
-      // 5. Buscar todos os gastos
+      // 5. Buscar todos os gastos (EXCLUINDO AQUISIÇÃO pois já está em valor_aquisicao)
+      // Isso evita duplicação: valor_aquisicao + gasto de aquisição
       const { data: gastos } = await supabase
         .from('gastos')
-        .select('valor');
+        .select('valor, tipo')
+        .neq('tipo', 'Aquisição'); // Exclui gastos de aquisição
 
       const totalGastos = gastos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
       const totalAquisicao = animais.reduce((sum, a) => sum + Number(a.valor_aquisicao || 0), 0);
@@ -215,14 +217,16 @@ export default function Dashboard() {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // QUERY: Distribuição de gastos por tipo
+  // QUERY: Distribuição de gastos por tipo (EXCLUINDO AQUISIÇÃO)
   // ═══════════════════════════════════════════════════════════════
   const { data: gastosPorTipo } = useQuery({
     queryKey: ['gastos-por-tipo', user?.id],
     queryFn: async () => {
+      // Exclui gastos de aquisição pois já estão em valor_aquisicao
       const { data } = await supabase
         .from('gastos')
-        .select('tipo, valor');
+        .select('tipo, valor')
+        .neq('tipo', 'Aquisição');
 
       if (!data || data.length === 0) return [];
 

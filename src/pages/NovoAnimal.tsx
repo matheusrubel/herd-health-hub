@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { NumericInput } from '@/components/ui/numeric-input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -212,9 +213,8 @@ export default function NovoAnimal() {
               {/* Peso de Entrada */}
               <div className="space-y-2">
                 <Label htmlFor="peso_entrada">Peso de Entrada (kg) *</Label>
-                <Input
+                <NumericInput
                   id="peso_entrada"
-                  type="number"
                   step="0.01"
                   min="0"
                   placeholder="Ex: 285"
@@ -240,9 +240,8 @@ export default function NovoAnimal() {
               {/* Valor Aquisição */}
               <div className="space-y-2">
                 <Label htmlFor="valor_aquisicao">Valor Aquisição (R$)</Label>
-                <Input
+                <NumericInput
                   id="valor_aquisicao"
-                  type="number"
                   step="0.01"
                   min="0"
                   placeholder="Ex: 3500.00"
@@ -326,9 +325,8 @@ export default function NovoAnimal() {
                   {/* Idade */}
                   <div className="space-y-2">
                     <Label htmlFor="idade_meses">Idade (meses)</Label>
-                    <Input
+                    <NumericInput
                       id="idade_meses"
-                      type="number"
                       min="0"
                       placeholder="Ex: 18"
                       value={idadeMeses}

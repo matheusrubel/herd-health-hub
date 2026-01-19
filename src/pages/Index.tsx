@@ -28,6 +28,7 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
+  Legend,
 } from 'recharts';
 
 const COLORS = ['#10B981', '#6366F1', '#F59E0B', '#EF4444', '#8B5CF6'];
@@ -141,20 +142,6 @@ const Index = () => {
       // ====================================
       const custoPorKgGanho = ganhoTotalKg > 0 ? totalInvestido / ganhoTotalKg : 0;
 
-      // ====================================
-      // 5. LOG DE DEBUG (remover em produção)
-      // ====================================
-      console.log('╔════════════════════════════════════╗');
-      console.log('║   DEBUG - CÁLCULO INVESTIMENTO    ║');
-      console.log('╠════════════════════════════════════╣');
-      console.log(`║ Aquisições (animais):   R$ ${totalAquisicoes.toFixed(2).padStart(10)}`);
-      console.log(`║ Gastos operacionais:    R$ ${totalGastosOperacionais.toFixed(2).padStart(10)}`);
-      console.log(`║ TOTAL INVESTIDO:        R$ ${totalInvestido.toFixed(2).padStart(10)}`);
-      console.log('╠════════════════════════════════════╣');
-      console.log(`║ Ganho total (kg):       ${ganhoTotalKg.toFixed(2).padStart(14)}`);
-      console.log(`║ Custo/kg ganho:         R$ ${custoPorKgGanho.toFixed(2).padStart(10)}`);
-      console.log('╚════════════════════════════════════╝');
-
       return {
         totalAnimais: totalAnimais || 0,
         gmdMedio: gmdMedio.toFixed(2),
@@ -167,44 +154,54 @@ const Index = () => {
     },
   });
 
-  // Distribuição de custos (incluindo aquisições corretamente)
+  // ════════════════════════════════════════════════
+  // DISTRIBUIÇÃO DE CUSTOS (COPIADO DO FINANCEIRO!)
+  // ════════════════════════════════════════════════
   const { data: custosPorTipo } = useQuery({
     queryKey: ['custos-distribuicao'],
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return [];
 
-      // Aquisições dos animais
-      const { data: animais } = await supabase
+      // 1. Aquisições dos animais
+      const { data: aquisicoes } = await supabase
         .from('animais')
         .select('valor_aquisicao')
         .eq('user_id', user.id)
         .eq('ativo', true);
 
-      const totalAquisicoes = animais?.reduce((acc: number, a: any) => 
+      const totalAquisicoes = aquisicoes?.reduce((acc, a) => 
         acc + Number(a.valor_aquisicao || 0), 0
       ) || 0;
 
-      // Gastos operacionais (sem Aquisição)
+      // 2. Gastos operacionais (EXCETO Aquisição)
       const { data: gastos } = await supabase
         .from('gastos')
-        .select('tipo, valor')
+        .select('valor, tipo')
         .eq('user_id', user.id)
         .neq('tipo', 'Aquisição');
 
-      if (!gastos?.length && totalAquisicoes === 0) return [];
+      const totalGastos = gastos?.reduce((acc, g) => 
+        acc + Number(g.valor || 0), 0
+      ) || 0;
 
-      const distribuicao: Record<string, number> = {};
-      
+      // Se não tem nada, retorna vazio
+      if (totalAquisicoes === 0 && totalGastos === 0) return [];
+
+      // 3. Montar distribuição
+      const dist: Record<string, number> = {};
+
+      // Adicionar aquisições
       if (totalAquisicoes > 0) {
-        distribuicao['Aquisição'] = totalAquisicoes;
+        dist['Aquisição'] = totalAquisicoes;
       }
 
-      gastos?.forEach((g: Gasto) => {
-        distribuicao[g.tipo] = (distribuicao[g.tipo] || 0) + Number(g.valor);
+      // Adicionar gastos por tipo
+      gastos?.forEach((g: any) => {
+        dist[g.tipo] = (dist[g.tipo] || 0) + Number(g.valor);
       });
 
-      return Object.entries(distribuicao).map(([name, value]) => ({ name, value }));
+      return Object.entries(dist).map(([name, value]) => ({ name, value }));
     },
   });
 
@@ -239,7 +236,7 @@ const Index = () => {
         const gmd = (pesoAtual - animal.peso_entrada) / dias;
 
         return {
-          numero_brinco: animal.numero_brinco,
+          numero_brinco: `#${animal.numero_brinco}`,
           gmd: Number(gmd.toFixed(2)),
         };
       }) || [];
@@ -287,6 +284,42 @@ const Index = () => {
     return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value || 0);
   };
 
+  // Custom tooltip para gráfico de pizza moderno
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 rounded-lg shadow-lg border">
+          <p className="font-semibold">{payload[0].name}</p>
+          <p className="text-primary font-bold">{formatCurrency(payload[0].value)}</p>
+          <p className="text-sm text-muted-foreground">
+            {((payload[0].value / payload[0].payload.total) * 100).toFixed(1)}%
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Custom label para pizza moderno
+  const renderCustomizedLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
+    const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+    const x = cx + radius * Math.cos(-midAngle * Math.PI / 180);
+    const y = cy + radius * Math.sin(-midAngle * Math.PI / 180);
+
+    return (
+      <text 
+        x={x} 
+        y={y} 
+        fill="white" 
+        textAnchor={x > cx ? 'start' : 'end'} 
+        dominantBaseline="central"
+        className="font-bold text-sm"
+      >
+        {`${(percent * 100).toFixed(0)}%`}
+      </text>
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="p-4 md:p-6 space-y-6">
@@ -306,7 +339,7 @@ const Index = () => {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold">Visão Geral</h1>
-          <p className="text-muted-foreground">Acompanhe o desempenho do seu rebanho</p>
+          <p className="text-muted-foreground">Acompanhe o desempenho do seu rebanho • {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long' })}</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => navigate('/configuracoes')} className="gap-2">
           <Settings className="h-4 w-4" />
@@ -316,7 +349,7 @@ const Index = () => {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Animais Ativos</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -327,7 +360,7 @@ const Index = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">GMD Médio</CardTitle>
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
@@ -343,7 +376,7 @@ const Index = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Peso Médio</CardTitle>
             <Scale className="h-4 w-4 text-muted-foreground" />
@@ -354,18 +387,18 @@ const Index = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Investimento Total</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(stats?.totalInvestido || 0)}</div>
+            <div className="text-2xl font-bold text-green-600">{formatCurrency(stats?.totalInvestido || 0)}</div>
             <p className="text-xs text-muted-foreground">Aquisição + Operacional</p>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Custo/kg Ganho</CardTitle>
             <Target className="h-4 w-4 text-muted-foreground" />
@@ -376,7 +409,7 @@ const Index = () => {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Tempo Médio</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -409,50 +442,87 @@ const Index = () => {
         </div>
       )}
 
-      {/* Gráficos */}
+      {/* Gráficos Modernos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Gráfico de Pizza MODERNO */}
         {custosPorTipo && custosPorTipo.length > 0 && (
-          <Card>
+          <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
-              <CardTitle>Distribuição de Custos</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-green-600" />
+                Distribuição de Custos
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={320}>
                 <PieChart>
                   <Pie
                     data={custosPorTipo}
                     cx="50%"
                     cy="50%"
                     labelLine={false}
-                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
+                    label={renderCustomizedLabel}
+                    outerRadius={110}
+                    innerRadius={60}
                     fill="#8884d8"
                     dataKey="value"
+                    paddingAngle={2}
                   >
                     {custosPorTipo.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={COLORS[index % COLORS.length]}
+                        className="hover:opacity-80 transition-opacity"
+                      />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatCurrency(value)} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend 
+                    verticalAlign="bottom" 
+                    height={36}
+                    formatter={(value) => <span className="text-sm font-medium">{value}</span>}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
         )}
 
+        {/* Gráfico de Barras MODERNO */}
         {top5Animais && top5Animais.length > 0 && (
-          <Card>
+          <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
-              <CardTitle>Top 5 Animais (GMD)</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
+                Top 5 Animais (GMD)
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
+              <ResponsiveContainer width="100%" height={320}>
                 <BarChart data={top5Animais}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="numero_brinco" />
-                  <YAxis />
-                  <Tooltip formatter={(value: number) => `${value} kg/dia`} />
-                  <Bar dataKey="gmd" fill="#10B981" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis 
+                    dataKey="numero_brinco"
+                    tick={{ fontSize: 12 }}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 12 }}
+                    label={{ value: 'kg/dia', angle: -90, position: 'insideLeft' }}
+                  />
+                  <Tooltip 
+                    formatter={(value: number) => [`${value} kg/dia`, 'GMD']}
+                    contentStyle={{ 
+                      backgroundColor: 'white', 
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar 
+                    dataKey="gmd" 
+                    fill="#10B981"
+                    radius={[8, 8, 0, 0]}
+                    maxBarSize={60}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -469,7 +539,10 @@ const Index = () => {
               <h3 className="text-xl font-semibold">Nenhum animal cadastrado</h3>
               <p className="text-muted-foreground">Comece cadastrando seus primeiros animais</p>
             </div>
-            <Button onClick={() => navigate('/animais')}>Cadastrar Animal</Button>
+            <Button onClick={() => navigate('/animais')}>
+              <Users className="mr-2 h-4 w-4" />
+              Cadastrar Animal
+            </Button>
           </div>
         </Card>
       )}

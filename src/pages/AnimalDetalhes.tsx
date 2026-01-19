@@ -47,6 +47,7 @@ import {
   Trash2,
   ArrowRightLeft,
   Loader2,
+  History,
 } from 'lucide-react';
 import {
   LineChart,
@@ -100,10 +101,10 @@ export default function AnimalDetalhes() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('pesagens')
-        .select('*')
+        .select('*, responsaveis(nome)')
         .eq('animal_id', id)
         .order('data', { ascending: true })
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true});
       if (error) throw error;
       return data;
     },
@@ -125,13 +126,72 @@ export default function AnimalDetalhes() {
     enabled: !!user,
   });
 
-  // Fetch gastos diretos do animal
-  const { data: gastos } = useQuery({
-    queryKey: ['gastos-animal', id],
+  // ════════════════════════════════════════════════
+  // FETCH GASTOS COMPLETO: DIRETOS + LOTE + RATEADOS
+  // ════════════════════════════════════════════════
+  const { data: gastosCompletos } = useQuery({
+    queryKey: ['gastos-completos-animal', id, animal?.lote_id],
     queryFn: async () => {
-      const { data, error } = await supabase
+      if (!animal || !user) return { diretos: [], lote: [], rateioValor: 0 };
+
+      // 1. Gastos diretos do animal
+      const { data: gastosDiretos } = await supabase
         .from('gastos')
         .select('*')
+        .eq('animal_id', id)
+        .order('data', { ascending: false });
+
+      // 2. Gastos do lote (se animal tem lote)
+      let gastosLote: any[] = [];
+      if (animal.lote_id) {
+        const { data } = await supabase
+          .from('gastos')
+          .select('*, lotes(nome)')
+          .eq('aplicacao', 'lote')
+          .eq('lote_id', animal.lote_id)
+          .order('data', { ascending: false });
+        gastosLote = data || [];
+      }
+
+      // 3. Gastos rateados (aplicacao = 'todos')
+      const { data: gastosTodos } = await supabase
+        .from('gastos')
+        .select('valor')
+        .eq('user_id', user.id)
+        .eq('aplicacao', 'todos');
+      
+      const totalGastosTodos = gastosTodos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
+      
+      const { count: totalAnimais } = await supabase
+        .from('animais')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('ativo', true);
+      
+      const rateioValor = totalAnimais && totalAnimais > 0 ? totalGastosTodos / totalAnimais : 0;
+
+      return {
+        diretos: gastosDiretos || [],
+        lote: gastosLote,
+        rateioValor: Number(rateioValor.toFixed(2)),
+      };
+    },
+    enabled: !!id && !!user && !!animal,
+  });
+
+  // ════════════════════════════════════════════════
+  // FETCH MOVIMENTAÇÕES DE LOTE
+  // ════════════════════════════════════════════════
+  const { data: movimentacoes } = useQuery({
+    queryKey: ['movimentacoes-animal', id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('movimentacoes_lotes')
+        .select(`
+          *,
+          lote_origem:lotes!movimentacoes_lotes_lote_origem_id_fkey(nome),
+          lote_destino:lotes!movimentacoes_lotes_lote_destino_id_fkey(nome)
+        `)
         .eq('animal_id', id)
         .order('data', { ascending: false });
       if (error) throw error;
@@ -140,38 +200,7 @@ export default function AnimalDetalhes() {
     enabled: !!id && !!user,
   });
 
-  // ════════════════════════════════════════════════
-  // NOVA QUERY: GASTOS RATEADOS (aplicacao = 'todos')
-  // ════════════════════════════════════════════════
-  const { data: gastosRateados } = useQuery({
-    queryKey: ['gastos-rateados', user?.id],
-    queryFn: async () => {
-      // Total de gastos 'todos'
-      const { data: gastosTodos, error: errorGastos } = await supabase
-        .from('gastos')
-        .select('valor')
-        .eq('user_id', user!.id)
-        .eq('aplicacao', 'todos');
-      
-      if (errorGastos) throw errorGastos;
-      
-      const totalGastosTodos = gastosTodos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
-      
-      // Total de animais ativos
-      const { count: totalAnimais } = await supabase
-        .from('animais')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user!.id)
-        .eq('ativo', true);
-      
-      const rateio = totalAnimais && totalAnimais > 0 ? totalGastosTodos / totalAnimais : 0;
-      
-      return Number(rateio.toFixed(2));
-    },
-    enabled: !!user,
-  });
-
-  // Fetch protocolos do animal
+  // Fetch protocolos
   const { data: protocolos } = useQuery({
     queryKey: ['protocolos-animal', id],
     queryFn: async () => {
@@ -187,10 +216,10 @@ export default function AnimalDetalhes() {
   });
 
   // ════════════════════════════════════════════════
-  // CÁLCULO DE MÉTRICAS CORRIGIDO
+  // CÁLCULO DE MÉTRICAS
   // ════════════════════════════════════════════════
   const calcularMetricas = () => {
-    if (!animal) return null;
+    if (!animal || !gastosCompletos) return null;
 
     const ultimaPesagem = pesagens?.[pesagens.length - 1];
     const pesoAtual = ultimaPesagem ? Number(ultimaPesagem.peso) : Number(animal.peso_entrada);
@@ -198,20 +227,13 @@ export default function AnimalDetalhes() {
     const diasConfinamento = Math.max(1, daysBetweenDateOnly(animal.data_entrada));
     const gmd = ganhoTotal / diasConfinamento;
 
-    // ═══════════════════════════════════════════
-    // CUSTOS CORRETOS (3 FONTES)
-    // ═══════════════════════════════════════════
-    
-    // 1. Custo de aquisição
+    // Custos
     const custoAquisicao = Number(animal.valor_aquisicao || 0);
+    const custosGastosDiretos = gastosCompletos.diretos.reduce((sum, g) => sum + Number(g.valor), 0);
+    const custosGastosLote = gastosCompletos.lote.reduce((sum, g) => sum + Number(g.valor), 0);
+    const custosGastosRateados = gastosCompletos.rateioValor;
     
-    // 2. Gastos diretos do animal (animal_id específico)
-    const custosGastosDiretos = gastos?.reduce((sum, g) => sum + Number(g.valor), 0) || 0;
-    
-    // 3. Gastos rateados (aplicacao = 'todos')
-    const custosGastosRateados = gastosRateados || 0;
-    
-    const custoTotal = custoAquisicao + custosGastosDiretos + custosGastosRateados;
+    const custoTotal = custoAquisicao + custosGastosDiretos + custosGastosLote + custosGastosRateados;
     const custoKg = ganhoTotal > 0 ? custoTotal / ganhoTotal : 0;
 
     return {
@@ -239,7 +261,6 @@ export default function AnimalDetalhes() {
     mutationFn: async () => {
       if (!user || !animal) throw new Error('Erro');
 
-      // Atualizar animal
       const { error: updateError } = await supabase
         .from('animais')
         .update({ lote_id: novoLoteId })
@@ -247,7 +268,6 @@ export default function AnimalDetalhes() {
 
       if (updateError) throw updateError;
 
-      // Registrar movimentação
       const { error: movError } = await supabase
         .from('movimentacoes_lotes')
         .insert({
@@ -263,9 +283,13 @@ export default function AnimalDetalhes() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['animal', id] });
+      queryClient.invalidateQueries({ queryKey: ['movimentacoes-animal', id] });
+      queryClient.invalidateQueries({ queryKey: ['gastos-completos-animal', id] });
       queryClient.invalidateQueries({ queryKey: ['animais'] });
       toast.success('Animal movido com sucesso!');
       setMoverLoteOpen(false);
+      setNovoLoteId('');
+      setMotivoMudanca('');
     },
     onError: (error: any) => {
       toast.error('Erro ao mover animal', {
@@ -274,40 +298,35 @@ export default function AnimalDetalhes() {
     },
   });
 
-  // Mutation para EXCLUIR animal permanentemente (com todos os dados)
+  // Mutation para excluir animal
   const deleteAnimalMutation = useMutation({
     mutationFn: async () => {
       if (!id) throw new Error('ID do animal não encontrado');
 
-      // 1. Deletar pesagens do animal
       const { error: pesagensError } = await supabase
         .from('pesagens')
         .delete()
         .eq('animal_id', id);
       if (pesagensError) throw pesagensError;
 
-      // 2. Deletar gastos do animal
       const { error: gastosError } = await supabase
         .from('gastos')
         .delete()
         .eq('animal_id', id);
       if (gastosError) throw gastosError;
 
-      // 3. Deletar protocolos sanitários do animal
       const { error: protocolosError } = await supabase
         .from('protocolos_sanitarios')
         .delete()
         .eq('animal_id', id);
       if (protocolosError) throw protocolosError;
 
-      // 4. Deletar movimentações do animal
       const { error: movError } = await supabase
         .from('movimentacoes_lotes')
         .delete()
         .eq('animal_id', id);
       if (movError) throw movError;
 
-      // 5. Deletar o animal
       const { error: animalError } = await supabase
         .from('animais')
         .delete()
@@ -317,9 +336,6 @@ export default function AnimalDetalhes() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['animais'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['gastos'] });
-      queryClient.invalidateQueries({ queryKey: ['pesagens'] });
-      queryClient.invalidateQueries({ queryKey: ['protocolos'] });
       toast.success('Animal excluído com sucesso!');
       navigate('/animais');
     },
@@ -337,7 +353,6 @@ export default function AnimalDetalhes() {
     }).format(value);
   };
 
-  // Dados do gráfico
   const chartData =
     pesagens?.map((p) => ({
       data: format(parseDateOnly(p.data), 'dd/MM', { locale: ptBR }),
@@ -467,16 +482,16 @@ export default function AnimalDetalhes() {
 
         {/* Tabs */}
         <Tabs defaultValue="resumo" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="resumo">Resumo</TabsTrigger>
             <TabsTrigger value="pesagens">Pesagens</TabsTrigger>
             <TabsTrigger value="gastos">Gastos</TabsTrigger>
             <TabsTrigger value="sanitario">Sanitário</TabsTrigger>
+            <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
 
           {/* Resumo */}
           <TabsContent value="resumo" className="space-y-4">
-            {/* Gráfico */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Evolução de Peso</CardTitle>
@@ -508,7 +523,6 @@ export default function AnimalDetalhes() {
               </CardContent>
             </Card>
 
-            {/* Dados básicos */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Informações</CardTitle>
@@ -570,17 +584,25 @@ export default function AnimalDetalhes() {
                       const diff = pesagemAnterior ? Number(p.peso) - Number(pesagemAnterior.peso) : 0;
 
                       return (
-                        <div key={p.id} className="flex items-center justify-between rounded-lg border p-3">
-                          <div>
-                            <p className="font-medium">{Number(p.peso)}kg</p>
-                            <p className="text-sm text-muted-foreground">
-                              {format(parseDateOnly(p.data), 'dd/MM/yyyy')}
-                            </p>
+                        <div key={p.id} className="rounded-lg border p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <p className="font-medium">{Number(p.peso)}kg</p>
+                              <p className="text-sm text-muted-foreground">
+                                {format(parseDateOnly(p.data), 'dd/MM/yyyy')}
+                                {(p.responsaveis as any)?.nome && ` • ${(p.responsaveis as any).nome}`}
+                              </p>
+                            </div>
+                            {diff !== 0 && (
+                              <Badge variant={diff > 0 ? 'default' : 'destructive'}>
+                                {diff > 0 ? '+' : ''}{diff.toFixed(1)}kg
+                              </Badge>
+                            )}
                           </div>
-                          {diff !== 0 && (
-                            <Badge variant={diff > 0 ? 'default' : 'destructive'}>
-                              {diff > 0 ? '+' : ''}{diff.toFixed(1)}kg
-                            </Badge>
+                          {p.observacoes && (
+                            <p className="text-sm text-muted-foreground italic mt-2">
+                              💬 {p.observacoes}
+                            </p>
                           )}
                         </div>
                       );
@@ -613,10 +635,10 @@ export default function AnimalDetalhes() {
                   </div>
 
                   {/* Gastos Diretos */}
-                  {gastos && gastos.length > 0 && (
+                  {gastosCompletos && gastosCompletos.diretos.length > 0 && (
                     <>
                       <p className="text-sm font-medium text-muted-foreground mt-4">Gastos Diretos:</p>
-                      {gastos.map((g) => (
+                      {gastosCompletos.diretos.map((g) => (
                         <div key={g.id} className="flex items-center justify-between rounded-lg border p-3">
                           <div>
                             <p className="font-medium">{g.descricao}</p>
@@ -630,8 +652,28 @@ export default function AnimalDetalhes() {
                     </>
                   )}
 
+                  {/* Gastos do Lote */}
+                  {gastosCompletos && gastosCompletos.lote.length > 0 && (
+                    <>
+                      <p className="text-sm font-medium text-muted-foreground mt-4">Gastos do Lote:</p>
+                      {gastosCompletos.lote.map((g) => (
+                        <div key={g.id} className="flex items-center justify-between rounded-lg border p-3 bg-purple-50">
+                          <div>
+                            <p className="font-medium">{g.descricao}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {g.tipo} • {format(parseDateOnly(g.data), 'dd/MM/yyyy')}
+                              <br />
+                              Aplicado no {(g.lotes as any)?.nome || 'lote'}
+                            </p>
+                          </div>
+                          <p className="font-semibold text-purple-700">{formatCurrency(Number(g.valor))}</p>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
                   {/* Gastos Rateados */}
-                  {gastosRateados && gastosRateados > 0 && (
+                  {gastosCompletos && gastosCompletos.rateioValor > 0 && (
                     <>
                       <p className="text-sm font-medium text-muted-foreground mt-4">Gastos Rateados:</p>
                       <div className="flex items-center justify-between rounded-lg border p-3 bg-blue-50">
@@ -639,7 +681,7 @@ export default function AnimalDetalhes() {
                           <p className="font-medium">Gastos gerais (rateio)</p>
                           <p className="text-sm text-muted-foreground">Aplicação: Todos os animais</p>
                         </div>
-                        <p className="font-semibold text-blue-700">{formatCurrency(gastosRateados)}</p>
+                        <p className="font-semibold text-blue-700">{formatCurrency(gastosCompletos.rateioValor)}</p>
                       </div>
                     </>
                   )}
@@ -648,16 +690,10 @@ export default function AnimalDetalhes() {
                   <div className="flex items-center justify-between rounded-lg border-2 border-primary p-3 bg-primary/5 mt-4">
                     <div>
                       <p className="font-bold">TOTAL INVESTIDO</p>
-                      <p className="text-sm text-muted-foreground">Aquisição + Diretos + Rateados</p>
+                      <p className="text-sm text-muted-foreground">Aquisição + Diretos + Lote + Rateados</p>
                     </div>
                     <p className="text-xl font-bold text-primary">{formatCurrency(metricas?.custoTotal || 0)}</p>
                   </div>
-
-                  {(!gastos || gastos.length === 0) && (!gastosRateados || gastosRateados === 0) && (
-                    <p className="py-4 text-center text-muted-foreground">
-                      Nenhum gasto adicional registrado
-                    </p>
-                  )}
                 </div>
               </CardContent>
             </Card>
@@ -692,6 +728,49 @@ export default function AnimalDetalhes() {
                   <p className="py-8 text-center text-muted-foreground">
                     Nenhum protocolo registrado
                   </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Histórico */}
+          <TabsContent value="historico">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <History className="h-5 w-5" />
+                  <CardTitle className="text-lg">Histórico de Movimentações</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {movimentacoes && movimentacoes.length > 0 ? (
+                  <div className="space-y-3">
+                    {movimentacoes.map((m) => (
+                      <div key={m.id} className="rounded-lg border p-4 bg-slate-50">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <ArrowRightLeft className="h-4 w-4 text-primary" />
+                            <p className="font-medium">
+                              {(m.lote_origem as any)?.nome || 'Sem lote'} → {(m.lote_destino as any)?.nome || 'Sem lote'}
+                            </p>
+                          </div>
+                          <Badge variant="outline">
+                            {format(parseDateOnly(m.data), 'dd/MM/yyyy')}
+                          </Badge>
+                        </div>
+                        {m.motivo && (
+                          <p className="text-sm text-muted-foreground mt-2">
+                            💬 Motivo: {m.motivo}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-8 text-center text-muted-foreground">
+                    <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                    <p>Nenhuma movimentação registrada</p>
+                  </div>
                 )}
               </CardContent>
             </Card>

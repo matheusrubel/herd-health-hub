@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppLayout } from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { NumericInput } from '@/components/ui/numeric-input';
 import { Button } from '@/components/ui/button';
@@ -81,7 +81,9 @@ export default function NovoAnimal() {
       const valor = valorAquisicao ? parseFloat(valorAquisicao) : 0;
       const idade = idadeMeses ? parseInt(idadeMeses) : null;
 
-      // 1. Criar animal
+      // ═══════════════════════════════════════════
+      // 1. CRIAR ANIMAL
+      // ═══════════════════════════════════════════
       const { data: animal, error: animalError } = await supabase
         .from('animais')
         .insert({
@@ -90,7 +92,7 @@ export default function NovoAnimal() {
           lote_id: loteId || null,
           peso_entrada: peso,
           data_entrada: dataEntrada,
-          valor_aquisicao: valor,
+          valor_aquisicao: valor, // ← VALOR SALVO AQUI!
           responsavel_id: responsavelId || null,
           raca: raca || null,
           sexo: sexo || null,
@@ -102,7 +104,9 @@ export default function NovoAnimal() {
 
       if (animalError) throw animalError;
 
-      // 2. Criar primeira pesagem
+      // ═══════════════════════════════════════════
+      // 2. CRIAR PRIMEIRA PESAGEM
+      // ═══════════════════════════════════════════
       const { error: pesagemError } = await supabase
         .from('pesagens')
         .insert({
@@ -116,34 +120,28 @@ export default function NovoAnimal() {
 
       if (pesagemError) throw pesagemError;
 
-      // 3. Criar gasto de aquisição (se valor > 0)
-      if (valor > 0) {
-        const { error: gastoError } = await supabase
-          .from('gastos')
-          .insert({
-            user_id: user.id,
-            data: dataEntrada,
-            tipo: 'Aquisição',
-            valor: valor,
-            descricao: `Aquisição animal #${numeroBrinco}`,
-            aplicacao: 'animal',
-            animal_id: animal.id,
-          });
-
-        if (gastoError) throw gastoError;
-      }
+      // ═══════════════════════════════════════════
+      // 3. NÃO CRIAR GASTO! 
+      // O valor_aquisicao já está salvo no animal!
+      // Os dashboards vão buscar de lá!
+      // ═══════════════════════════════════════════
 
       return animal;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['animais'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      queryClient.invalidateQueries({ queryKey: ['financeiro-aquisicoes'] });
       toast.success('Animal cadastrado com sucesso!');
       navigate('/animais');
     },
     onError: (error: any) => {
       if (error.message?.includes('unique')) {
         toast.error('Número de brinco já existe');
+      } else if (error.message?.includes('check')) {
+        toast.error('Erro ao cadastrar animal', {
+          description: 'Verifique os dados e tente novamente',
+        });
       } else {
         toast.error('Erro ao cadastrar animal', {
           description: error.message,
@@ -248,6 +246,9 @@ export default function NovoAnimal() {
                   value={valorAquisicao}
                   onChange={(e) => setValorAquisicao(e.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Este valor será usado nos dashboards e relatórios
+                </p>
               </div>
 
               {/* Responsável */}

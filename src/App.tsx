@@ -13,6 +13,7 @@ import Animais from "./pages/Animais";
 import NovoAnimal from "./pages/NovoAnimal";
 import AnimalDetalhes from "./pages/AnimalDetalhes";
 import Lotes from "./pages/Lotes";
+import LoteDetalhes from "./pages/LoteDetalhes";
 import Financeiro from "./pages/Financeiro";
 import Sanitario from "./pages/Sanitario";
 import Dietas from "./pages/Dietas";
@@ -90,6 +91,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <Lotes />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/lotes/:id"
+        element={
+          <ProtectedRoute>
+            <LoteDetalhes />
           </ProtectedRoute>
         }
       />

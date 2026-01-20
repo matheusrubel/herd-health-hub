@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Settings,
+  Utensils,
 } from 'lucide-react';
 import {
   PieChart,
@@ -155,6 +156,49 @@ const Index = () => {
   });
 
   // ════════════════════════════════════════════════
+  // CUSTO ESTIMADO ALIMENTAÇÃO (NOVO!)
+  // ════════════════════════════════════════════════
+  const { data: custoAlimentacao } = useQuery({
+    queryKey: ['custo-alimentacao'],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { custoTotalDia: 0, custoTotalMes: 0 };
+
+      // Buscar lotes com dietas
+      const { data: lotes } = await supabase
+        .from('lotes')
+        .select('id, dieta_id, dietas(consumo_diario_kg, custo_por_kg)')
+        .eq('user_id', user.id)
+        .eq('ativo', true)
+        .not('dieta_id', 'is', null);
+
+      if (!lotes || lotes.length === 0) return { custoTotalDia: 0, custoTotalMes: 0 };
+
+      let custoTotalDia = 0;
+
+      for (const lote of lotes) {
+        // Contar animais ativos do lote
+        const { count } = await supabase
+          .from('animais')
+          .select('*', { count: 'exact', head: true })
+          .eq('lote_id', lote.id)
+          .eq('ativo', true);
+
+        const totalAnimais = count || 0;
+        const dieta = lote.dietas as any;
+        
+        if (dieta && totalAnimais > 0) {
+          const custoPorAnimalDia = Number(dieta.consumo_diario_kg || 0) * Number(dieta.custo_por_kg || 0);
+          custoTotalDia += custoPorAnimalDia * totalAnimais;
+        }
+      }
+
+      return {
+        custoTotalDia,
+        custoTotalMes: custoTotalDia * 30,
+      };
+    },
+  });
   // DISTRIBUIÇÃO DE CUSTOS (COPIADO DO FINANCEIRO!)
   // ════════════════════════════════════════════════
   const { data: custosPorTipo } = useQuery({
@@ -419,6 +463,24 @@ const Index = () => {
             <p className="text-xs text-muted-foreground">Confinamento médio</p>
           </CardContent>
         </Card>
+
+        {/* Card de Custo Estimado Alimentação */}
+        {custoAlimentacao && custoAlimentacao.custoTotalDia > 0 && (
+          <Card className="hover:shadow-md transition-shadow bg-amber-50 border-amber-200">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Custo Alimentação</CardTitle>
+              <Utensils className="h-4 w-4 text-amber-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-xl font-bold text-amber-700">{formatCurrency(custoAlimentacao.custoTotalDia)}/dia</div>
+              <p className="text-xs text-amber-600">{formatCurrency(custoAlimentacao.custoTotalMes)}/mês estimado</p>
+            </CardContent>
+          </Card>
+        )}
+          <CardContent>
+            <div className="text-2xl font-bold">{stats?.diasMedio || 0} dias</div>
+            <p className="text-xs text-muted-foreground">Confinamento médio</p>
+          </CardContent>
       </div>
 
       {/* Alertas */}

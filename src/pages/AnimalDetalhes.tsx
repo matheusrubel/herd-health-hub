@@ -48,6 +48,7 @@ import {
   ArrowRightLeft,
   Loader2,
   History,
+  Utensils,
 } from 'lucide-react';
 import {
   LineChart,
@@ -84,7 +85,7 @@ export default function AnimalDetalhes() {
         .from('animais')
         .select(`
           *,
-          lotes(id, nome),
+          lotes(id, nome, dieta_id, dietas(id, nome, consumo_diario_kg, custo_por_kg, tipo)),
           responsaveis(id, nome)
         `)
         .eq('id', id)
@@ -564,6 +565,41 @@ export default function AnimalDetalhes() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Seção de Dieta */}
+            {(animal.lotes as any)?.dietas && (
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Utensils className="h-5 w-5 text-amber-600" />
+                    Dieta do Lote
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {(() => {
+                    const dieta = (animal.lotes as any).dietas;
+                    const custoDiario = Number(dieta.consumo_diario_kg || 0) * Number(dieta.custo_por_kg || 0);
+                    return (
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        <div>
+                          <p className="text-sm text-muted-foreground">Nome</p>
+                          <p className="font-medium">{dieta.nome}</p>
+                          {dieta.tipo && <span className="text-xs text-muted-foreground">({dieta.tipo})</span>}
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Consumo/Dia</p>
+                          <p className="font-medium">{dieta.consumo_diario_kg} kg</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-muted-foreground">Custo/Dia</p>
+                          <p className="font-medium text-green-600">{formatCurrency(custoDiario)}</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Pesagens */}

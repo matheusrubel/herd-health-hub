@@ -22,7 +22,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { BarChart3, TrendingUp, Download, Filter } from 'lucide-react';
+import { BarChart3, TrendingUp, FileSpreadsheet, Filter } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import {
   BarChart,
   Bar,
@@ -176,6 +177,41 @@ export default function Relatorios() {
       }
     : null;
 
+  const exportToExcel = () => {
+    if (!performance || performance.length === 0) return;
+
+    const dataToExport = performance.map(animal => ({
+      'Brinco': `#${animal.numero_brinco}`,
+      'Lote': animal.lote_nome || '-',
+      'Peso Entrada (kg)': animal.peso_entrada,
+      'Peso Atual (kg)': animal.peso_atual,
+      'Ganho Total (kg)': animal.ganho_total,
+      'GMD (kg/dia)': animal.gmd,
+      'Dias': animal.dias,
+      'Custo Total (R$)': animal.custo_total.toFixed(2),
+      'Custo por kg (R$)': animal.custo_kg.toFixed(2),
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Performance');
+
+    // Add summary sheet
+    if (stats) {
+      const summaryData = [
+        { 'Métrica': 'Total de Animais', 'Valor': stats.totalAnimais },
+        { 'Métrica': 'GMD Médio (kg/dia)', 'Valor': stats.gmdMedio },
+        { 'Métrica': 'Peso Médio (kg)', 'Valor': stats.pesoMedio },
+        { 'Métrica': 'Investimento Total (R$)', 'Valor': stats.custoTotal.toFixed(2) },
+      ];
+      const wsSummary = XLSX.utils.json_to_sheet(summaryData);
+      XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumo');
+    }
+
+    const date = new Date().toISOString().split('T')[0];
+    XLSX.writeFile(wb, `relatorio-performance-${date}.xlsx`);
+  };
+
   return (
     <AppLayout>
       <div className="container py-6">
@@ -201,6 +237,16 @@ export default function Relatorios() {
                 ))}
               </SelectContent>
             </Select>
+
+            <Button
+              onClick={exportToExcel}
+              disabled={!performance || performance.length === 0}
+              variant="outline"
+              className="gap-2"
+            >
+              <FileSpreadsheet className="h-4 w-4" />
+              Exportar Excel
+            </Button>
           </div>
         </div>
 

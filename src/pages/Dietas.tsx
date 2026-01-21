@@ -18,6 +18,16 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -25,18 +35,34 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from 'sonner';
-import { Plus, Wheat, Loader2, Package } from 'lucide-react';
+import { Plus, Wheat, Loader2, Package, Edit, Trash2 } from 'lucide-react';
 
 const tiposDieta = [
   'Confinado',
   'Pasto',
   'Semi-confinado',
+  'Volumoso',
+  'Concentrado',
+  'Misto',
 ];
+
+interface Dieta {
+  id: string;
+  nome: string;
+  consumo_diario_kg: number;
+  custo_por_kg: number | null;
+  tipo: string | null;
+  composicao: string | null;
+  ativo: boolean;
+}
 
 export default function Dietas() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [dietaEditando, setDietaEditando] = useState<Dieta | null>(null);
+  const [dietaDeletar, setDietaDeletar] = useState<string | null>(null);
 
   // Form state
   const [nome, setNome] = useState('');
@@ -54,7 +80,7 @@ export default function Dietas() {
         .eq('ativo', true)
         .order('nome');
       if (error) throw error;
-      return data;
+      return data as Dieta[];
     },
     enabled: !!user,
   });
@@ -80,35 +106,91 @@ export default function Dietas() {
     enabled: !!user,
   });
 
-  const createDietaMutation = useMutation({
+  // Create/Update mutation
+  const saveDietaMutation = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error('Usuário não autenticado');
 
-      const { error } = await supabase
-        .from('dietas')
-        .insert({
-          user_id: user.id,
-          nome,
-          consumo_diario_kg: parseFloat(consumoDiario),
-          custo_por_kg: custoPorKg ? parseFloat(custoPorKg) : null,
-          tipo: tipo || null,
-          composicao: composicao || null,
-        });
+      const dados = {
+        nome: nome.trim(),
+        consumo_diario_kg: parseFloat(consumoDiario),
+        custo_por_kg: custoPorKg ? parseFloat(custoPorKg) : null,
+        tipo: tipo || null,
+        composicao: composicao.trim() || null,
+      };
 
-      if (error) throw error;
+      if (dietaEditando) {
+        // Update
+        const { error } = await supabase
+          .from('dietas')
+          .update(dados)
+          .eq('id', dietaEditando.id);
+        if (error) throw error;
+      } else {
+        // Create
+        const { error } = await supabase
+          .from('dietas')
+          .insert({
+            ...dados,
+            user_id: user.id,
+          });
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['dietas'] });
-      toast.success('Dieta criada!');
-      setDialogOpen(false);
-      resetForm();
+      toast.success(dietaEditando ? 'Dieta atualizada!' : 'Dieta criada!');
+      handleCloseDialog();
     },
     onError: (error: any) => {
-      toast.error('Erro ao criar dieta', {
+      toast.error('Erro ao salvar dieta', {
         description: error.message,
       });
     },
   });
+
+  // Delete mutation
+  const deleteDietaMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from('dietas')
+        .update({ ativo: false })
+        .eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['dietas'] });
+      toast.success('Dieta removida!');
+      setDeleteDialogOpen(false);
+      setDietaDeletar(null);
+    },
+    onError: (error: any) => {
+      toast.error('Erro ao remover dieta', {
+        description: error.message,
+      });
+    },
+  });
+
+  const handleOpenDialog = (dieta?: Dieta) => {
+    if (dieta) {
+      setDietaEditando(dieta);
+      setNome(dieta.nome);
+      setConsumoDiario(dieta.consumo_diario_kg?.toString() || '');
+      setCustoPorKg(dieta.custo_por_kg?.toString() || '');
+      setTipo(dieta.tipo || '');
+      setComposicao(dieta.composicao || '');
+    } else {
+      setDietaEditando(null);
+      resetForm();
+    }
+    setDialogOpen(true);
+  };
+
+  const handleCloseDialog = () => {
+    setDialogOpen(false);
+    setDietaEditando(null);
+    resetForm();
+  };
 
   const resetForm = () => {
     setNome('');
@@ -128,14 +210,28 @@ export default function Dietas() {
       toast.error('Informe o consumo diário');
       return;
     }
-    createDietaMutation.mutate();
+    saveDietaMutation.mutate();
+  };
+
+  const handleDelete = (id: string) => {
+    setDietaDeletar(id);
+    setDeleteDialogOpen(true);
   };
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
       currency: 'BRL',
-    }).format(value);
+    }).format(value || 0);
+  };
+
+  const calcularCustoDiario = (dieta: Dieta) => {
+    if (!dieta.custo_por_kg) return 0;
+    return Number(dieta.consumo_diario_kg) * Number(dieta.custo_por_kg);
+  };
+
+  const calcularCustoMensal = (dieta: Dieta) => {
+    return calcularCustoDiario(dieta) * 30;
   };
 
   return (
@@ -155,9 +251,11 @@ export default function Dietas() {
                 Nova Dieta
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Criar Dieta</DialogTitle>
+                <DialogTitle>
+                  {dietaEditando ? 'Editar Dieta' : 'Criar Dieta'}
+                </DialogTitle>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
@@ -172,7 +270,7 @@ export default function Dietas() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="consumo">Consumo/dia (kg) *</Label>
+                  <Label htmlFor="consumo">Consumo/dia (kg/animal) *</Label>
                   <Input
                     id="consumo"
                     type="number"
@@ -183,6 +281,9 @@ export default function Dietas() {
                     onChange={(e) => setConsumoDiario(e.target.value)}
                     required
                   />
+                  <p className="text-xs text-muted-foreground">
+                    Quanto cada animal consome por dia
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -221,30 +322,52 @@ export default function Dietas() {
                     placeholder="Ex: Milho 60%, Soja 20%, Núcleo 20%"
                     value={composicao}
                     onChange={(e) => setComposicao(e.target.value)}
+                    rows={2}
                   />
                 </div>
+
+                {/* Preview do Custo */}
+                {consumoDiario && custoPorKg && (
+                  <div className="rounded-lg bg-primary/5 p-3 space-y-1">
+                    <p className="text-sm font-medium">💰 Custos Estimados:</p>
+                    <div className="text-sm space-y-0.5">
+                      <p>
+                        Por dia/animal:{' '}
+                        <span className="font-semibold">
+                          {formatCurrency(parseFloat(consumoDiario) * parseFloat(custoPorKg))}
+                        </span>
+                      </p>
+                      <p>
+                        Por mês/animal:{' '}
+                        <span className="font-semibold">
+                          {formatCurrency(parseFloat(consumoDiario) * parseFloat(custoPorKg) * 30)}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex gap-3 pt-4">
                   <Button
                     type="button"
                     variant="outline"
                     className="flex-1"
-                    onClick={() => setDialogOpen(false)}
+                    onClick={handleCloseDialog}
                   >
                     Cancelar
                   </Button>
                   <Button
                     type="submit"
                     className="flex-1"
-                    disabled={createDietaMutation.isPending}
+                    disabled={saveDietaMutation.isPending}
                   >
-                    {createDietaMutation.isPending ? (
+                    {saveDietaMutation.isPending ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Criando...
+                        Salvando...
                       </>
                     ) : (
-                      'Criar'
+                      'Salvar'
                     )}
                   </Button>
                 </div>
@@ -271,23 +394,46 @@ export default function Dietas() {
         ) : dietas && dietas.length > 0 ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {dietas.map((dieta) => {
-              const custoDiario = Number(dieta.consumo_diario_kg) * Number(dieta.custo_por_kg || 0);
+              const custoDiario = calcularCustoDiario(dieta);
+              const custoMensal = calcularCustoMensal(dieta);
               const lotesUsando = lotesUsandoDietas?.[dieta.id] || 0;
 
               return (
                 <Card key={dieta.id} className="transition-shadow hover:shadow-md">
                   <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="flex items-center gap-2 text-lg">
-                        <Wheat className="h-5 w-5 text-primary" />
-                        {dieta.nome}
-                      </CardTitle>
-                      {dieta.tipo && (
-                        <Badge variant="secondary">{dieta.tipo}</Badge>
-                      )}
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="flex items-center gap-2 text-lg mb-1">
+                          <Wheat className="h-5 w-5 text-primary" />
+                          {dieta.nome}
+                        </CardTitle>
+                        {dieta.tipo && (
+                          <Badge variant="secondary" className="text-xs">
+                            {dieta.tipo}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleOpenDialog(dieta)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleDelete(dieta.id)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-2">
+                  <CardContent className="space-y-3">
                     <div className="text-sm">
                       <span className="text-muted-foreground">Consumo: </span>
                       <span className="font-medium">{Number(dieta.consumo_diario_kg)} kg/dia</span>
@@ -296,22 +442,32 @@ export default function Dietas() {
                     {dieta.custo_por_kg && (
                       <>
                         <div className="text-sm">
-                          <span className="text-muted-foreground">Custo: </span>
-                          <span className="font-medium">{formatCurrency(Number(dieta.custo_por_kg))}/kg</span>
+                          <span className="text-muted-foreground">Custo/kg: </span>
+                          <span className="font-medium">{formatCurrency(Number(dieta.custo_por_kg))}</span>
                         </div>
-                        <div className="text-sm">
-                          <span className="text-muted-foreground">Custo diário: </span>
-                          <span className="font-semibold text-primary">{formatCurrency(custoDiario)}</span>
+
+                        <div className="rounded-lg bg-muted p-2 space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Custo/dia/animal</span>
+                            <span className="font-semibold text-primary">{formatCurrency(custoDiario)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">Custo/mês/animal</span>
+                            <span className="font-semibold">{formatCurrency(custoMensal)}</span>
+                          </div>
                         </div>
                       </>
                     )}
 
                     {dieta.composicao && (
-                      <p className="text-xs text-muted-foreground">{dieta.composicao}</p>
+                      <div className="text-xs text-muted-foreground">
+                        <p className="font-medium mb-1">Composição:</p>
+                        <p className="line-clamp-2">{dieta.composicao}</p>
+                      </div>
                     )}
 
-                    <div className="flex items-center gap-1 pt-2 text-xs text-muted-foreground">
-                      <Package className="h-3 w-3" />
+                    <div className="flex items-center gap-1 pt-1 text-xs text-muted-foreground border-t">
+                      <Package className="h-3 w-3 mt-1" />
                       <span>{lotesUsando} {lotesUsando === 1 ? 'lote usando' : 'lotes usando'}</span>
                     </div>
                   </CardContent>
@@ -327,7 +483,7 @@ export default function Dietas() {
               <p className="mb-4 text-center text-sm text-muted-foreground">
                 Crie dietas para gerenciar a alimentação dos lotes
               </p>
-              <Button onClick={() => setDialogOpen(true)}>
+              <Button onClick={() => handleOpenDialog()}>
                 <Plus className="mr-2 h-4 w-4" />
                 Criar Dieta
               </Button>
@@ -340,11 +496,40 @@ export default function Dietas() {
           <Button
             size="lg"
             className="h-14 w-14 rounded-full shadow-lg"
-            onClick={() => setDialogOpen(true)}
+            onClick={() => handleOpenDialog()}
           >
             <Plus className="h-6 w-6" />
           </Button>
         </div>
+
+        {/* Dialog Deletar */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Remover dieta?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Esta dieta será removida. Lotes que a utilizam ficarão sem dieta
+                associada.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => dietaDeletar && deleteDietaMutation.mutate(dietaDeletar)}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleteDietaMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Removendo...
+                  </>
+                ) : (
+                  'Remover'
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );

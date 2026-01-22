@@ -153,7 +153,6 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       const { data, error } = await supabase
         .from('tipos_gasto')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -168,7 +167,6 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -183,7 +181,6 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       const { data, error } = await supabase
         .from('animais')
         .select('id, numero_brinco, lotes(nome)')
-        .eq('ativo', true)
         .order('numero_brinco');
       if (error) throw error;
       return data;

@@ -50,7 +50,6 @@ const Financeiro = () => {
         .from('animais')
         .select('id, numero_brinco, valor_aquisicao, data_entrada')
         .eq('user_id', user.id)
-        .eq('ativo', true)
         .order('data_entrada', { ascending: false });
 
       if (error) throw error;

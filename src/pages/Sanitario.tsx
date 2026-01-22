@@ -58,7 +58,6 @@ export default function Sanitario() {
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -72,7 +71,6 @@ export default function Sanitario() {
       const { data, error } = await supabase
         .from('animais')
         .select('id, numero_brinco')
-        .eq('ativo', true)
         .order('numero_brinco');
       if (error) throw error;
       return data;
@@ -103,7 +101,6 @@ export default function Sanitario() {
       const { data, error } = await supabase
         .from('tipos_protocolo')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -120,7 +117,6 @@ export default function Sanitario() {
       const { data, error } = await supabase
         .from('produtos_sanitarios')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;

@@ -68,14 +68,12 @@ const Index = () => {
       const { count: totalAnimais } = await supabase
         .from('animais')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('ativo', true);
+        .eq('user_id', user.id);
 
       const { data: animais } = await supabase
         .from('animais')
         .select('id, peso_entrada, data_entrada, valor_aquisicao')
-        .eq('user_id', user.id)
-        .eq('ativo', true);
+        .eq('user_id', user.id);
 
       const { data: todasPesagens } = await supabase
         .from('pesagens')
@@ -169,7 +167,6 @@ const Index = () => {
         .from('lotes')
         .select('id, dieta_id, dietas(consumo_diario_kg, custo_por_kg)')
         .eq('user_id', user.id)
-        .eq('ativo', true)
         .not('dieta_id', 'is', null);
 
       if (!lotes || lotes.length === 0) return { custoTotalDia: 0, custoTotalMes: 0 };
@@ -181,8 +178,7 @@ const Index = () => {
         const { count } = await supabase
           .from('animais')
           .select('*', { count: 'exact', head: true })
-          .eq('lote_id', lote.id)
-          .eq('ativo', true);
+          .eq('lote_id', lote.id);
 
         const totalAnimais = count || 0;
         const dieta = lote.dietas as any;
@@ -211,8 +207,7 @@ const Index = () => {
       const { data: aquisicoes } = await supabase
         .from('animais')
         .select('valor_aquisicao')
-        .eq('user_id', user.id)
-        .eq('ativo', true);
+        .eq('user_id', user.id);
 
       const totalAquisicoes = aquisicoes?.reduce((acc, a) => 
         acc + Number(a.valor_aquisicao || 0), 0
@@ -259,8 +254,7 @@ const Index = () => {
       const { data: animais } = await supabase
         .from('animais')
         .select('id, numero_brinco, peso_entrada, data_entrada')
-        .eq('user_id', user.id)
-        .eq('ativo', true);
+        .eq('user_id', user.id);
 
       const { data: pesagens } = await supabase
         .from('pesagens')

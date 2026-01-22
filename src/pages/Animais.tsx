@@ -24,7 +24,6 @@ interface AnimalComResumo {
   numero_brinco: string;
   peso_entrada: number;
   data_entrada: string;
-  ativo: boolean;
   lote_id: string | null;
   lote_nome: string | null;
   peso_atual: number;
@@ -44,7 +43,6 @@ export default function Animais() {
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -63,11 +61,9 @@ export default function Animais() {
           numero_brinco,
           peso_entrada,
           data_entrada,
-          ativo,
           lote_id,
           lotes(nome)
         `)
-        .eq('ativo', true)
         .order('numero_brinco');
 
       if (search) {
@@ -110,7 +106,6 @@ export default function Animais() {
           numero_brinco: animal.numero_brinco,
           peso_entrada: Number(animal.peso_entrada),
           data_entrada: animal.data_entrada,
-          ativo: animal.ativo,
           lote_id: animal.lote_id,
           lote_nome: (animal.lotes as any)?.nome || null,
           peso_atual: pesoAtual,

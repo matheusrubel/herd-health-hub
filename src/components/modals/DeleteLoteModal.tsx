@@ -50,7 +50,6 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .neq('id', lote.id)
         .order('nome');
       if (error) throw error;
@@ -60,33 +59,33 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
   });
 
   // Mutation para soft delete (lote vazio)
-  const softDeleteMutation = useMutation({
+  const deleteMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from('lotes')
-        .update({ ativo: false })
-        .eq('id', lote.id);
-
-      if (error) throw error;
-
-      // Log
+      // Log before delete
       await supabase
         .from('logs_exclusao_lotes')
         .insert({
           user_id: user!.id,
           lote_id: lote.id,
           lote_nome: lote.nome,
-          acao: 'soft_delete',
+          acao: 'hard_delete',
           animais_afetados: 0,
         });
+
+      const { error } = await supabase
+        .from('lotes')
+        .delete()
+        .eq('id', lote.id);
+
+      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['lotes'] });
-      toast.success('Lote arquivado com sucesso!');
+      toast.success('Lote excluído com sucesso!');
       onOpenChange(false);
     },
     onError: (error: any) => {
-      toast.error('Erro ao arquivar lote', {
+      toast.error('Erro ao excluir lote', {
         description: error.message,
       });
     },
@@ -101,16 +100,14 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
       const { data: animais } = await supabase
         .from('animais')
         .select('id')
-        .eq('lote_id', lote.id)
-        .eq('ativo', true);
+        .eq('lote_id', lote.id);
 
       if (animais && animais.length > 0) {
         // Mover animais
         const { error: moveError } = await supabase
           .from('animais')
           .update({ lote_id: loteDestinoId })
-          .eq('lote_id', lote.id)
-          .eq('ativo', true);
+          .eq('lote_id', lote.id);
 
         if (moveError) throw moveError;
 
@@ -129,10 +126,10 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
           .insert(movimentacoes);
       }
 
-      // Inativar lote
+      // Deletar lote
       const { error: deleteError } = await supabase
         .from('lotes')
-        .update({ ativo: false })
+        .delete()
         .eq('id', lote.id);
 
       if (deleteError) throw deleteError;
@@ -171,34 +168,22 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
       const { data: animais } = await supabase
         .from('animais')
         .select('id')
-        .eq('lote_id', lote.id)
-        .eq('ativo', true);
+        .eq('lote_id', lote.id);
 
       if (animais && animais.length > 0) {
-        const { error: finishError } = await supabase
+        // Deletar todos animais do lote
+        const { error: deleteAnimaisError } = await supabase
           .from('animais')
-          .update({ 
-            ativo: false,
-            observacoes: supabase.rpc as any // Will be handled differently
-          })
-          .eq('lote_id', lote.id)
-          .eq('ativo', true);
+          .delete()
+          .eq('lote_id', lote.id);
 
-        // Use direct update since we can't easily append
-        for (const animal of animais) {
-          await supabase
-            .from('animais')
-            .update({ 
-              ativo: false,
-            })
-            .eq('id', animal.id);
-        }
+        if (deleteAnimaisError) throw deleteAnimaisError;
       }
 
-      // Inativar lote
+      // Deletar lote
       const { error: deleteError } = await supabase
         .from('lotes')
-        .update({ ativo: false })
+        .delete()
         .eq('id', lote.id);
 
       if (deleteError) throw deleteError;
@@ -220,7 +205,7 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
     onSuccess: (count) => {
       queryClient.invalidateQueries({ queryKey: ['lotes'] });
       queryClient.invalidateQueries({ queryKey: ['animais'] });
-      toast.success(`${count} animais finalizados. Lote arquivado!`);
+      toast.success(`${count} animais excluídos. Lote excluído!`);
       onOpenChange(false);
     },
     onError: (error: any) => {
@@ -232,7 +217,7 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
 
   const handleConfirm = () => {
     if (animaisAtivos === 0) {
-      softDeleteMutation.mutate();
+      deleteMutation.mutate();
     } else {
       if (!confirmado) {
         toast.error('Por favor, confirme a ação');
@@ -253,7 +238,7 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
     }
   };
 
-  const isLoading = softDeleteMutation.isPending || moverMutation.isPending || finalizarMutation.isPending;
+  const isLoading = deleteMutation.isPending || moverMutation.isPending || finalizarMutation.isPending;
 
   // Lote vazio
   if (animaisAtivos === 0) {
@@ -263,21 +248,12 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5" />
-              Arquivar Lote?
+              Excluir Lote?
             </AlertDialogTitle>
             <AlertDialogDescription className="space-y-3">
-              <p>⚠️ Arquivar "{lote.nome}"?</p>
-              <p>ℹ️ Este lote não possui animais ativos.</p>
-              <p>Dados históricos serão mantidos para relatórios.</p>
-              <div className="rounded-lg bg-muted p-3 text-sm">
-                <p className="font-medium text-foreground">✅ Mantido:</p>
-                <ul className="mt-1 list-inside list-disc text-muted-foreground">
-                  <li>Animais inativos</li>
-                  <li>Pesagens</li>
-                  <li>Gastos</li>
-                  <li>Protocolos</li>
-                </ul>
-              </div>
+              <p>⚠️ Excluir "{lote.nome}"?</p>
+              <p>ℹ️ Este lote não possui animais.</p>
+              <p className="text-destructive font-medium">Esta ação é permanente e não pode ser desfeita.</p>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -286,10 +262,10 @@ export function DeleteLoteModal({ open, onOpenChange, lote, animaisAtivos }: Del
               {isLoading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Arquivando...
+                  Excluindo...
                 </>
               ) : (
-                'Arquivar'
+                'Excluir'
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -64,7 +64,6 @@ export default function Configuracoes() {
       const { data, error } = await supabase
         .from('racas')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -78,7 +77,6 @@ export default function Configuracoes() {
       const { data, error } = await supabase
         .from('tipos_protocolo')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -92,7 +90,6 @@ export default function Configuracoes() {
       const { data, error } = await supabase
         .from('produtos_sanitarios')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -106,7 +103,6 @@ export default function Configuracoes() {
       const { data, error } = await supabase
         .from('tipos_gasto')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -247,7 +243,7 @@ export default function Configuracoes() {
     mutationFn: async ({ table, id }: { table: string; id: string }) => {
       const { error } = await supabase
         .from(table)
-        .update({ ativo: false })
+        .delete()
         .eq('id', id);
       if (error) throw error;
     },

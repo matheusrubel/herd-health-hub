@@ -49,7 +49,6 @@ export default function NovoAnimal() {
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -80,7 +79,6 @@ export default function NovoAnimal() {
       const { data, error } = await supabase
         .from('racas')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;

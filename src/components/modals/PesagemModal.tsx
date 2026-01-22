@@ -76,7 +76,6 @@ export function PesagemModal({ open, onOpenChange, animalId }: PesagemModalProps
       const { data, error } = await supabase
         .from('animais')
         .select('id, numero_brinco, lote_id, lotes(nome)')
-        .eq('ativo', true)
         .order('numero_brinco');
       if (error) throw error;
       return data;

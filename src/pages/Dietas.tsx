@@ -53,7 +53,6 @@ interface Dieta {
   custo_por_kg: number | null;
   tipo: string | null;
   composicao: string | null;
-  ativo: boolean;
 }
 
 export default function Dietas() {
@@ -77,7 +76,6 @@ export default function Dietas() {
       const { data, error } = await supabase
         .from('dietas')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data as Dieta[];
@@ -91,8 +89,7 @@ export default function Dietas() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('lotes')
-        .select('id, dieta_id')
-        .eq('ativo', true);
+        .select('id, dieta_id');
       if (error) throw error;
 
       const count: Record<string, number> = {};
@@ -154,7 +151,7 @@ export default function Dietas() {
     mutationFn: async (id: string) => {
       const { error } = await supabase
         .from('dietas')
-        .update({ ativo: false })
+        .delete()
         .eq('id', id);
       if (error) throw error;
     },

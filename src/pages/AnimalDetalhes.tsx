@@ -119,7 +119,6 @@ export default function AnimalDetalhes() {
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -166,8 +165,7 @@ export default function AnimalDetalhes() {
       const { count: totalAnimais } = await supabase
         .from('animais')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .eq('ativo', true);
+        .eq('user_id', user.id);
       
       const rateioValor = totalAnimais && totalAnimais > 0 ? totalGastosTodos / totalAnimais : 0;
 

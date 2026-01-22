@@ -57,7 +57,6 @@ export default function Relatorios() {
       const { data, error } = await supabase
         .from('lotes')
         .select('id, nome')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -79,7 +78,6 @@ export default function Relatorios() {
           lote_id,
           lotes(nome)
         `)
-        .eq('ativo', true)
         .order('numero_brinco');
 
       if (loteFilter && loteFilter !== 'todos') {

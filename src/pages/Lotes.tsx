@@ -49,7 +49,6 @@ export default function Lotes() {
       const { data, error } = await supabase
         .from('dietas')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;
@@ -63,7 +62,6 @@ export default function Lotes() {
       const { data: lotesData, error } = await supabase
         .from('lotes')
         .select('*, dietas(id, nome, consumo_diario_kg, custo_por_kg, tipo)')
-        .eq('ativo', true)
         .order('nome');
 
       if (error) throw error;
@@ -74,8 +72,7 @@ export default function Lotes() {
           const { data: animais } = await supabase
             .from('animais')
             .select('id, peso_entrada, data_entrada')
-            .eq('lote_id', lote.id)
-            .eq('ativo', true);
+            .eq('lote_id', lote.id);
 
           const totalAnimais = animais?.length || 0;
           let gmdMedio = 0;

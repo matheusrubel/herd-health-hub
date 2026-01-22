@@ -78,7 +78,6 @@ export default function LoteDetalhes() {
         .from('animais')
         .select('id, numero_brinco, peso_entrada, data_entrada, raca, sexo')
         .eq('lote_id', id)
-        .eq('ativo', true)
         .order('numero_brinco');
       if (error) throw error;
       return data;
@@ -110,7 +109,6 @@ export default function LoteDetalhes() {
       const { data, error } = await supabase
         .from('dietas')
         .select('*')
-        .eq('ativo', true)
         .order('nome');
       if (error) throw error;
       return data;

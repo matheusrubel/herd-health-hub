@@ -111,11 +111,10 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ['dashboard-stats', user?.id],
     queryFn: async (): Promise<DashboardStats> => {
-      // 1. Buscar todos os animais ativos
+      // 1. Buscar todos os animais
       const { data: animais, error: animaisError } = await supabase
         .from('animais')
-        .select('id, numero_brinco, peso_entrada, data_entrada, valor_aquisicao')
-        .eq('ativo', true);
+        .select('id, numero_brinco, peso_entrada, data_entrada, valor_aquisicao');
 
       if (animaisError) throw animaisError;
 
@@ -252,8 +251,7 @@ export default function Dashboard() {
     queryFn: async () => {
       const { data: animais } = await supabase
         .from('animais')
-        .select('id, numero_brinco, peso_entrada, data_entrada')
-        .eq('ativo', true);
+        .select('id, numero_brinco, peso_entrada, data_entrada');
 
       if (!animais || animais.length === 0) return [];
 
@@ -362,8 +360,7 @@ export default function Dashboard() {
       // 1. Animais prontos para abate (>=430kg)
       const { data: animaisPesados } = await supabase
         .from('animais')
-        .select('id, numero_brinco, peso_entrada')
-        .eq('ativo', true);
+        .select('id, numero_brinco, peso_entrada');
 
       if (animaisPesados && animaisPesados.length > 0) {
         const animalIds = animaisPesados.map(a => a.id);
@@ -415,8 +412,7 @@ export default function Dashboard() {
       // 3. Verificar lotes com GMD baixo
       const { data: animaisAtivos } = await supabase
         .from('animais')
-        .select('id, peso_entrada, data_entrada, lotes(nome)')
-        .eq('ativo', true);
+        .select('id, peso_entrada, data_entrada, lotes(nome)');
 
       if (animaisAtivos && animaisAtivos.length > 0) {
         const animalIds = animaisAtivos.map(a => a.id);

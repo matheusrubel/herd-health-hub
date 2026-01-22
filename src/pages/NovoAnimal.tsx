@@ -25,8 +25,6 @@ import {
 import { toast } from 'sonner';
 import { ArrowLeft, ChevronDown, Loader2 } from 'lucide-react';
 
-const racas = ['Nelore', 'Angus', 'Brahman', 'Cruzamento', 'Senepol', 'Outra'];
-
 export default function NovoAnimal() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -40,7 +38,7 @@ export default function NovoAnimal() {
   const [dataEntrada, setDataEntrada] = useState(new Date().toISOString().split('T')[0]);
   const [valorAquisicao, setValorAquisicao] = useState('');
   const [responsavelId, setResponsavelId] = useState('');
-  const [raca, setRaca] = useState('');
+  const [racaId, setRacaId] = useState(''); // ← MUDOU: agora é ID
   const [sexo, setSexo] = useState('');
   const [idadeMeses, setIdadeMeses] = useState('');
   const [observacoes, setObservacoes] = useState('');
@@ -73,6 +71,23 @@ export default function NovoAnimal() {
     enabled: !!user,
   });
 
+  // ═══════════════════════════════════════════
+  // NOVO: BUSCAR RAÇAS DO BANCO
+  // ═══════════════════════════════════════════
+  const { data: racas } = useQuery({
+    queryKey: ['racas', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('racas')
+        .select('id, nome')
+        .eq('ativo', true)
+        .order('nome');
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
   const createAnimalMutation = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error('Usuário não autenticado');
@@ -92,9 +107,9 @@ export default function NovoAnimal() {
           lote_id: loteId || null,
           peso_entrada: peso,
           data_entrada: dataEntrada,
-          valor_aquisicao: valor, // ← VALOR SALVO AQUI!
+          valor_aquisicao: valor,
           responsavel_id: responsavelId || null,
-          raca: raca || null,
+          raca_id: racaId || null, // ← MUDOU: salva raca_id (UUID)
           sexo: sexo || null,
           idade_meses: idade,
           observacoes: observacoes || null,
@@ -119,12 +134,6 @@ export default function NovoAnimal() {
         });
 
       if (pesagemError) throw pesagemError;
-
-      // ═══════════════════════════════════════════
-      // 3. NÃO CRIAR GASTO! 
-      // O valor_aquisicao já está salvo no animal!
-      // Os dashboards vão buscar de lá!
-      // ═══════════════════════════════════════════
 
       return animal;
     },
@@ -277,21 +286,26 @@ export default function NovoAnimal() {
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-4 pt-4">
-                  {/* Raça */}
+                  {/* Raça - CORRIGIDO */}
                   <div className="space-y-2">
                     <Label htmlFor="raca">Raça</Label>
-                    <Select value={raca} onValueChange={setRaca}>
+                    <Select value={racaId} onValueChange={setRacaId}>
                       <SelectTrigger>
                         <SelectValue placeholder="Selecione a raça" />
                       </SelectTrigger>
                       <SelectContent>
-                        {racas.map((r) => (
-                          <SelectItem key={r} value={r}>
-                            {r}
+                        {racas?.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.nome}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {(!racas || racas.length === 0) && (
+                      <p className="text-xs text-muted-foreground">
+                        Nenhuma raça cadastrada. <button type="button" onClick={() => navigate('/configuracoes')} className="text-primary underline">Cadastrar raças</button>
+                      </p>
+                    )}
                   </div>
 
                   {/* Sexo */}

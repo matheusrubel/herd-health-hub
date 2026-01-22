@@ -28,18 +28,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
 import { Plus, Syringe, Calendar, AlertTriangle, CheckCircle, Loader2, Eye } from 'lucide-react';
-import { format, addDays, isBefore, isAfter } from 'date-fns';
+import { format, isAfter } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { ProtocoloDetalhesModal } from '@/components/modals/ProtocoloDetalhesModal';
-
-const tiposProtocolo = [
-  'Vacina',
-  'Vermífugo',
-  'Antibiótico',
-  'Vitamina',
-  'Carrapaticida',
-  'Outro',
-];
 
 export default function Sanitario() {
   const { user } = useAuth();
@@ -48,10 +39,10 @@ export default function Sanitario() {
   const [selectedProtocolo, setSelectedProtocolo] = useState<any>(null);
   const [detalhesOpen, setDetalhesOpen] = useState(false);
 
-  // Form state
+  // Form state - MUDOU: IDs em vez de texto
   const [data, setData] = useState(new Date().toISOString().split('T')[0]);
-  const [tipo, setTipo] = useState('');
-  const [produto, setProduto] = useState('');
+  const [tipoProtocoloId, setTipoProtocoloId] = useState('');
+  const [produtoSanitarioId, setProdutoSanitarioId] = useState('');
   const [dose, setDose] = useState('');
   const [custo, setCusto] = useState('');
   const [aplicacao, setAplicacao] = useState('todos');
@@ -103,6 +94,40 @@ export default function Sanitario() {
     enabled: !!user,
   });
 
+  // ═══════════════════════════════════════════
+  // NOVO: BUSCAR TIPOS DE PROTOCOLO DO BANCO
+  // ═══════════════════════════════════════════
+  const { data: tiposProtocolo } = useQuery({
+    queryKey: ['tipos-protocolo', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tipos_protocolo')
+        .select('id, nome')
+        .eq('ativo', true)
+        .order('nome');
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
+  // ═══════════════════════════════════════════
+  // NOVO: BUSCAR PRODUTOS SANITÁRIOS DO BANCO
+  // ═══════════════════════════════════════════
+  const { data: produtosSanitarios } = useQuery({
+    queryKey: ['produtos-sanitarios', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('produtos_sanitarios')
+        .select('id, nome')
+        .eq('ativo', true)
+        .order('nome');
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user,
+  });
+
   const { data: protocolos, isLoading } = useQuery({
     queryKey: ['protocolos', user?.id],
     queryFn: async () => {
@@ -112,7 +137,9 @@ export default function Sanitario() {
           *,
           lotes(nome),
           animais(numero_brinco),
-          responsaveis(nome)
+          responsaveis(nome),
+          tipos_protocolo:tipo_protocolo_id(nome),
+          produtos_sanitarios:produto_sanitario_id(nome)
         `)
         .order('data', { ascending: false });
       if (error) throw error;
@@ -137,8 +164,8 @@ export default function Sanitario() {
         .insert({
           user_id: user.id,
           data,
-          tipo,
-          produto,
+          tipo_protocolo_id: tipoProtocoloId, // ← MUDOU: salva ID
+          produto_sanitario_id: produtoSanitarioId, // ← MUDOU: salva ID
           dose: dose || null,
           custo: custo ? parseFloat(custo) : null,
           aplicacao,
@@ -153,18 +180,31 @@ export default function Sanitario() {
 
       // Se tiver custo, criar gasto sanitário
       if (custo && parseFloat(custo) > 0) {
-        await supabase
-          .from('gastos')
-          .insert({
-            user_id: user.id,
-            data,
-            tipo: 'Sanitário',
-            valor: parseFloat(custo),
-            descricao: `${tipo}: ${produto}`,
-            aplicacao,
-            lote_id: aplicacao === 'lote' ? loteId : null,
-            animal_id: aplicacao === 'animal' ? animalId : null,
-          });
+        // Buscar o tipo_gasto_id de "Sanitário"
+        const { data: tipoGasto } = await supabase
+          .from('tipos_gasto')
+          .select('id')
+          .eq('nome', 'Sanitário')
+          .single();
+
+        if (tipoGasto) {
+          // Buscar nomes para descrição
+          const tipoNome = tiposProtocolo?.find(t => t.id === tipoProtocoloId)?.nome || '';
+          const produtoNome = produtosSanitarios?.find(p => p.id === produtoSanitarioId)?.nome || '';
+
+          await supabase
+            .from('gastos')
+            .insert({
+              user_id: user.id,
+              data,
+              tipo_gasto_id: tipoGasto.id,
+              valor: parseFloat(custo),
+              descricao: `${tipoNome}: ${produtoNome}`,
+              aplicacao,
+              lote_id: aplicacao === 'lote' ? loteId : null,
+              animal_id: aplicacao === 'animal' ? animalId : null,
+            });
+        }
       }
     },
     onSuccess: () => {
@@ -183,8 +223,8 @@ export default function Sanitario() {
 
   const resetForm = () => {
     setData(new Date().toISOString().split('T')[0]);
-    setTipo('');
-    setProduto('');
+    setTipoProtocoloId(''); // ← MUDOU
+    setProdutoSanitarioId(''); // ← MUDOU
     setDose('');
     setCusto('');
     setAplicacao('todos');
@@ -197,12 +237,12 @@ export default function Sanitario() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tipo) {
+    if (!tipoProtocoloId) { // ← MUDOU
       toast.error('Selecione o tipo');
       return;
     }
-    if (!produto.trim()) {
-      toast.error('Informe o produto');
+    if (!produtoSanitarioId) { // ← MUDOU
+      toast.error('Selecione o produto');
       return;
     }
     if (aplicacao === 'lote' && !loteId) {
@@ -254,31 +294,48 @@ export default function Sanitario() {
                   />
                 </div>
 
+                {/* Tipo - CORRIGIDO */}
                 <div className="space-y-2">
                   <Label htmlFor="tipo">Tipo *</Label>
-                  <Select value={tipo} onValueChange={setTipo}>
+                  <Select value={tipoProtocoloId} onValueChange={setTipoProtocoloId}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {tiposProtocolo.map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {t}
+                      {tiposProtocolo?.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.nome}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {(!tiposProtocolo || tiposProtocolo.length === 0) && (
+                    <p className="text-xs text-muted-foreground">
+                      Nenhum tipo cadastrado. Vá em Configurações.
+                    </p>
+                  )}
                 </div>
 
+                {/* Produto - CORRIGIDO */}
                 <div className="space-y-2">
                   <Label htmlFor="produto">Produto *</Label>
-                  <Input
-                    id="produto"
-                    placeholder="Ex: Vacina Aftosa"
-                    value={produto}
-                    onChange={(e) => setProduto(e.target.value)}
-                    required
-                  />
+                  <Select value={produtoSanitarioId} onValueChange={setProdutoSanitarioId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {produtosSanitarios?.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {(!produtosSanitarios || produtosSanitarios.length === 0) && (
+                    <p className="text-xs text-muted-foreground">
+                      Nenhum produto cadastrado. Vá em Configurações.
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -474,9 +531,11 @@ export default function Sanitario() {
                     {proximasDoses.map((p) => {
                       const dias = diasAte(p.proxima_dose!);
                       const isUrgente = dias <= 3;
+                      const produtoNome = (p.produtos_sanitarios as any)?.nome || 'Produto';
+                      const tipoNome = (p.tipos_protocolo as any)?.nome || '';
 
                       return (
-                      <div
+                        <div
                           key={p.id}
                           className={`flex items-start justify-between rounded-lg border p-4 ${
                             isUrgente ? 'border-warning bg-warning/5' : ''
@@ -489,9 +548,9 @@ export default function Sanitario() {
                               <Syringe className="mt-0.5 h-5 w-5 text-muted-foreground" />
                             )}
                             <div>
-                              <p className="font-medium">{p.produto}</p>
+                              <p className="font-medium">{produtoNome}</p>
                               <p className="text-sm text-muted-foreground">
-                                {p.tipo} • {p.aplicacao === 'todos' ? 'Todos animais' : p.aplicacao === 'lote' ? (p.lotes as any)?.nome : `#${(p.animais as any)?.numero_brinco}`}
+                                {tipoNome} • {p.aplicacao === 'todos' ? 'Todos animais' : p.aplicacao === 'lote' ? (p.lotes as any)?.nome : `#${(p.animais as any)?.numero_brinco}`}
                               </p>
                             </div>
                           </div>
@@ -544,39 +603,44 @@ export default function Sanitario() {
                   </div>
                 ) : protocolos && protocolos.length > 0 ? (
                   <div className="space-y-2">
-                    {protocolos.map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 cursor-pointer transition-colors"
-                        onClick={() => {
-                          setSelectedProtocolo(p);
-                          setDetalhesOpen(true);
-                        }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Syringe className="h-5 w-5 text-primary" />
-                          <div>
-                            <p className="font-medium">{p.produto}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {p.tipo} • {p.aplicacao === 'todos' ? 'Todos' : p.aplicacao === 'lote' ? (p.lotes as any)?.nome : `#${(p.animais as any)?.numero_brinco}`}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="text-right">
-                            <p className="text-sm font-medium">
-                              {format(new Date(p.data), 'dd/MM/yyyy')}
-                            </p>
-                            {p.custo && (
-                              <p className="text-xs text-muted-foreground">
-                                R$ {Number(p.custo).toFixed(2)}
+                    {protocolos.map((p) => {
+                      const produtoNome = (p.produtos_sanitarios as any)?.nome || 'Produto';
+                      const tipoNome = (p.tipos_protocolo as any)?.nome || 'Tipo';
+
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex items-center justify-between rounded-lg border p-3 hover:bg-muted/50 cursor-pointer transition-colors"
+                          onClick={() => {
+                            setSelectedProtocolo(p);
+                            setDetalhesOpen(true);
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Syringe className="h-5 w-5 text-primary" />
+                            <div>
+                              <p className="font-medium">{produtoNome}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {tipoNome} • {p.aplicacao === 'todos' ? 'Todos' : p.aplicacao === 'lote' ? (p.lotes as any)?.nome : `#${(p.animais as any)?.numero_brinco}`}
                               </p>
-                            )}
+                            </div>
                           </div>
-                          <Eye className="h-4 w-4 text-muted-foreground" />
+                          <div className="flex items-center gap-2">
+                            <div className="text-right">
+                              <p className="text-sm font-medium">
+                                {format(new Date(p.data), 'dd/MM/yyyy')}
+                              </p>
+                              {p.custo && (
+                                <p className="text-xs text-muted-foreground">
+                                  R$ {Number(p.custo).toFixed(2)}
+                                </p>
+                              )}
+                            </div>
+                            <Eye className="h-4 w-4 text-muted-foreground" />
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="py-8 text-center text-muted-foreground">

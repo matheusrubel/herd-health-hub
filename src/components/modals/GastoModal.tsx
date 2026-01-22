@@ -40,15 +40,8 @@ import {
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Loader2, CalendarIcon, Wheat, Syringe, Users, MoreHorizontal, ShoppingCart } from 'lucide-react';
+import { Loader2, CalendarIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const tiposGasto = [
-  { value: 'Alimentação', label: 'Alimentação', icon: Wheat },
-  { value: 'Sanitário', label: 'Sanitário', icon: Syringe },
-  { value: 'Mão de Obra', label: 'Mão de Obra', icon: Users },
-  { value: 'Outros', label: 'Outros', icon: MoreHorizontal },
-];
 
 const gastoSchema = z.object({
   data: z.date({
@@ -56,7 +49,7 @@ const gastoSchema = z.object({
   }).refine((date) => date <= new Date(), {
     message: 'Data não pode ser futura',
   }),
-  tipo: z.string().min(1, 'Selecione o tipo'),
+  tipo_gasto_id: z.string().min(1, 'Selecione o tipo'), // ← MUDOU
   valor: z.string()
     .min(1, 'Valor é obrigatório')
     .refine((val) => {
@@ -95,7 +88,7 @@ interface GastoModalProps {
   editData?: {
     id: string;
     data: string;
-    tipo: string;
+    tipo_gasto_id: string; // ← MUDOU
     valor: number;
     descricao: string;
     aplicacao: string;
@@ -113,7 +106,7 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
     resolver: zodResolver(gastoSchema),
     defaultValues: {
       data: new Date(),
-      tipo: '',
+      tipo_gasto_id: '', // ← MUDOU
       valor: '',
       descricao: '',
       aplicacao: 'todos',
@@ -130,7 +123,7 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       if (editData) {
         form.reset({
           data: new Date(editData.data + 'T12:00:00'),
-          tipo: editData.tipo,
+          tipo_gasto_id: editData.tipo_gasto_id, // ← MUDOU
           valor: editData.valor.toString().replace('.', ','),
           descricao: editData.descricao,
           aplicacao: (editData.aplicacao as 'todos' | 'lote' | 'animal') || 'todos',
@@ -140,7 +133,7 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       } else {
         form.reset({
           data: new Date(),
-          tipo: '',
+          tipo_gasto_id: '', // ← MUDOU
           valor: '',
           descricao: '',
           aplicacao: 'todos',
@@ -150,6 +143,23 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       }
     }
   }, [open, editData, form]);
+
+  // ═══════════════════════════════════════════
+  // NOVO: BUSCAR TIPOS DE GASTO DO BANCO
+  // ═══════════════════════════════════════════
+  const { data: tiposGasto } = useQuery({
+    queryKey: ['tipos-gasto', user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('tipos_gasto')
+        .select('id, nome')
+        .eq('ativo', true)
+        .order('nome');
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!user && open,
+  });
 
   // Fetch lotes ativos
   const { data: lotes } = useQuery({
@@ -195,7 +205,7 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
       const gastoData = {
         user_id: user.id,
         data: dataFormatada,
-        tipo: values.tipo,
+        tipo_gasto_id: values.tipo_gasto_id, // ← MUDOU: salva ID
         valor: parseFloat(values.valor.replace(',', '.')),
         descricao: values.descricao.trim(),
         aplicacao: values.aplicacao,
@@ -307,10 +317,10 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
                 )}
               />
 
-              {/* Tipo */}
+              {/* Tipo - CORRIGIDO */}
               <FormField
                 control={form.control}
-                name="tipo"
+                name="tipo_gasto_id"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tipo *</FormLabel>
@@ -321,16 +331,18 @@ export function GastoModal({ open, onOpenChange, editData }: GastoModalProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {tiposGasto.map((tipo) => (
-                          <SelectItem key={tipo.value} value={tipo.value}>
-                            <div className="flex items-center gap-2">
-                              <tipo.icon className="h-4 w-4" />
-                              {tipo.label}
-                            </div>
+                        {tiposGasto?.map((tipo) => (
+                          <SelectItem key={tipo.id} value={tipo.id}>
+                            {tipo.nome}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {(!tiposGasto || tiposGasto.length === 0) && (
+                      <p className="text-xs text-muted-foreground">
+                        Nenhum tipo cadastrado. Vá em Configurações para cadastrar.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

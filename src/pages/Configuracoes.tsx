@@ -39,6 +39,7 @@ export default function Configuracoes() {
   const [tipoProtocoloModalOpen, setTipoProtocoloModalOpen] = useState(false);
   const [produtoModalOpen, setProdutoModalOpen] = useState(false);
   const [tipoGastoModalOpen, setTipoGastoModalOpen] = useState(false);
+  const [responsavelModalOpen, setResponsavelModalOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   // Estados de edição
@@ -46,6 +47,7 @@ export default function Configuracoes() {
   const [editandoTipoProtocolo, setEditandoTipoProtocolo] = useState<any>(null);
   const [editandoProduto, setEditandoProduto] = useState<any>(null);
   const [editandoTipoGasto, setEditandoTipoGasto] = useState<any>(null);
+  const [editandoResponsavel, setEditandoResponsavel] = useState<any>(null);
   const [itemDeletar, setItemDeletar] = useState<{ table: string; id: string } | null>(null);
 
   // Form states
@@ -53,6 +55,8 @@ export default function Configuracoes() {
   const [nomeTipoProtocolo, setNomeTipoProtocolo] = useState('');
   const [nomeProduto, setNomeProduto] = useState('');
   const [nomeTipoGasto, setNomeTipoGasto] = useState('');
+  const [nomeResponsavel, setNomeResponsavel] = useState('');
+  const [statusResponsavel, setStatusResponsavel] = useState('Ativo');
 
   // ═══════════════════════════════════════════
   // QUERIES
@@ -239,6 +243,35 @@ export default function Configuracoes() {
     },
   });
 
+  const saveResponsavelMutation = useMutation({
+    mutationFn: async () => {
+      if (!user) throw new Error('Não autenticado');
+      if (editandoResponsavel) {
+        const { error } = await supabase
+          .from('responsaveis')
+          .update({ nome: nomeResponsavel.trim(), status: statusResponsavel })
+          .eq('id', editandoResponsavel.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('responsaveis')
+          .insert({ user_id: user.id, nome: nomeResponsavel.trim(), status: statusResponsavel });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['responsaveis'] });
+      toast.success(editandoResponsavel ? 'Responsável atualizado!' : 'Responsável cadastrado!');
+      setResponsavelModalOpen(false);
+      setNomeResponsavel('');
+      setStatusResponsavel('Ativo');
+      setEditandoResponsavel(null);
+    },
+    onError: (error: any) => {
+      toast.error('Erro ao salvar', { description: error.message });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async ({ table, id }: { table: string; id: string }) => {
       const { error } = await supabase
@@ -252,6 +285,7 @@ export default function Configuracoes() {
       queryClient.invalidateQueries({ queryKey: ['tipos-protocolo'] });
       queryClient.invalidateQueries({ queryKey: ['produtos-sanitarios'] });
       queryClient.invalidateQueries({ queryKey: ['tipos-gasto'] });
+      queryClient.invalidateQueries({ queryKey: ['responsaveis'] });
       toast.success('Item removido!');
       setDeleteDialogOpen(false);
       setItemDeletar(null);
@@ -598,12 +632,55 @@ export default function Configuracoes() {
           </TabsContent>
 
           {/* ═══════════════════════════════════════════ */}
-          {/* ABA 5: RESPONSÁVEIS (JÁ EXISTIA) */}
+          {/* ABA 5: RESPONSÁVEIS */}
           {/* ═══════════════════════════════════════════ */}
           <TabsContent value="responsaveis">
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Responsáveis</CardTitle>
+                <Dialog open={responsavelModalOpen} onOpenChange={setResponsavelModalOpen}>
+                  <DialogTrigger asChild>
+                    <Button size="sm" onClick={() => { setEditandoResponsavel(null); setNomeResponsavel(''); setStatusResponsavel('Ativo'); }}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Novo Responsável
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>{editandoResponsavel ? 'Editar' : 'Novo'} Responsável</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={(e) => { e.preventDefault(); saveResponsavelMutation.mutate(); }} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Nome *</Label>
+                        <Input
+                          placeholder="Ex: João Silva"
+                          value={nomeResponsavel}
+                          onChange={(e) => setNomeResponsavel(e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Status</Label>
+                        <select
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          value={statusResponsavel}
+                          onChange={(e) => setStatusResponsavel(e.target.value)}
+                        >
+                          <option value="Ativo">Ativo</option>
+                          <option value="Inativo">Inativo</option>
+                        </select>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button type="button" variant="outline" className="flex-1" onClick={() => setResponsavelModalOpen(false)}>
+                          Cancelar
+                        </Button>
+                        <Button type="submit" className="flex-1" disabled={saveResponsavelMutation.isPending}>
+                          {saveResponsavelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Salvar'}
+                        </Button>
+                      </div>
+                    </form>
+                  </DialogContent>
+                </Dialog>
               </CardHeader>
               <CardContent>
                 {responsaveisLoading ? (
@@ -615,10 +692,25 @@ export default function Configuracoes() {
                   <div className="grid gap-2">
                     {responsaveis.map((r) => (
                       <div key={r.id} className="flex items-center justify-between rounded-lg border p-3">
-                        <span className="font-medium">{r.nome}</span>
-                        <Badge variant={r.status === 'Ativo' ? 'default' : 'secondary'}>
-                          {r.status}
-                        </Badge>
+                        <div className="flex items-center gap-3">
+                          <span className="font-medium">{r.nome}</span>
+                          <Badge variant={r.status === 'Ativo' ? 'default' : 'secondary'}>
+                            {r.status}
+                          </Badge>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => {
+                            setEditandoResponsavel(r);
+                            setNomeResponsavel(r.nome);
+                            setStatusResponsavel(r.status || 'Ativo');
+                            setResponsavelModalOpen(true);
+                          }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete('responsaveis', r.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
